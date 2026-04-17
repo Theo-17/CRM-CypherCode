@@ -41,30 +41,33 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (email, password) => {
-    const authData = await pb.collection('users').authWithPassword(email, password, { $autoCancel: false });
-    setCurrentUser(authData.record);
-    return authData;
+    const response = await fetch('http://localhost:3000/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Login failed');
+    localStorage.setItem('auth_token', data.token);
+    setCurrentUser(data.user);
+    return data;
   };
 
   const signup = async (name, email, password, empresa) => {
-    const data = {
-      name,
-      email,
-      password,
-      passwordConfirm: password,
-      empresa,
-      rol: 'vendedor',
-      plan: 'gratis',
-      emailVisibility: true
-    };
-    
-    const record = await pb.collection('users').create(data, { $autoCancel: false });
-    await pb.collection('users').authWithPassword(email, password, { $autoCancel: false });
-    setCurrentUser(pb.authStore.model);
-    return record;
+    const response = await fetch('http://localhost:3000/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password, empresa })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Signup failed');
+    localStorage.setItem('auth_token', data.token);
+    setCurrentUser(data.user);
+    return data.user;
   };
 
   const logout = () => {
+    localStorage.removeItem('auth_token');
     pb.authStore.clear();
     setCurrentUser(null);
   };
