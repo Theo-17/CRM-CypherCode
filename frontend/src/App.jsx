@@ -27,6 +27,7 @@ import AutomationsPage from './pages/AutomationsPage';
 import IntegrationsPage from './pages/IntegrationsPage';
 import InventarioPage from './pages/InventarioPage';
 import VentasPage from './pages/VentasPage';
+import PipelinePage from './pages/PipelinePage';
 
 function App() {
   return (
@@ -58,6 +59,7 @@ function App() {
           <Route path="/import" element={<ProtectedRoute><ImportClientsPage /></ProtectedRoute>} />
           <Route path="/automations" element={<ProtectedRoute><AutomationsPage /></ProtectedRoute>} />
           <Route path="/integrations" element={<ProtectedRoute><IntegrationsPage /></ProtectedRoute>} />
+          <Route path="/pipeline" element={<ProtectedRoute><PipelinePage /></ProtectedRoute>} />
         </Routes>
         <Toaster />
       </Router>

@@ -3,10 +3,10 @@ import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { 
+import {
   LayoutDashboard, Users, CheckSquare, Calendar, ChevronLeft, ChevronRight,
   Shield, BarChart3, CreditCard, Mail, Activity, Upload, Zap, Link as LinkIcon,
-  PieChart, Package, ShoppingCart
+  PieChart, Package, ShoppingCart, GitBranch
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -25,6 +25,7 @@ const Sidebar = () => {
     { path: '/ventas', label: 'Ventas', icon: ShoppingCart },
     { path: '/inventario', label: 'Inventario', icon: Package },
     { path: '/emails', label: 'Emails', icon: Mail },
+    { path: '/pipeline', label: 'Pipeline', icon: GitBranch },
     { path: '/conversion-analysis', label: 'Conversión', icon: PieChart },
     { path: '/timeline', label: 'Actividad', icon: Activity },
     { path: '/pricing', label: 'Suscripción', icon: CreditCard },

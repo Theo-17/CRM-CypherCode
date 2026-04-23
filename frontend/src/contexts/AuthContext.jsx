@@ -1,14 +1,10 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import pb from '@/lib/pocketbaseClient';
-import apiServerClient from '@/lib/apiServerClient';
 
 const AuthContext = createContext(null);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
 };
 
@@ -18,26 +14,25 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const initAuth = async () => {
-      if (pb.authStore.isValid) {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
         try {
-          // Refresh to get latest role and plan
-          const authData = await pb.collection('users').authRefresh({ $autoCancel: false });
-          setCurrentUser(authData.record);
-        } catch (err) {
-          pb.authStore.clear();
-          setCurrentUser(null);
+          const response = await fetch('http://localhost:3000/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setCurrentUser(data.user);
+          } else {
+            localStorage.removeItem('auth_token');
+          }
+        } catch {
+          localStorage.removeItem('auth_token');
         }
       }
       setInitialLoading(false);
     };
-
     initAuth();
-
-    const unsubscribe = pb.authStore.onChange((token, model) => {
-      setCurrentUser(model);
-    });
-
-    return () => unsubscribe();
   }, []);
 
   const login = async (email, password) => {
@@ -53,11 +48,11 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
-  const signup = async (name, email, password, empresa) => {
+  const signup = async (name, email, password) => {
     const response = await fetch('http://localhost:3000/api/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password, empresa })
+      body: JSON.stringify({ name, email, password })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Signup failed');
@@ -68,37 +63,30 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     localStorage.removeItem('auth_token');
-    pb.authStore.clear();
     setCurrentUser(null);
   };
 
   const getCurrentUserPlan = () => currentUser?.plan || 'gratis';
-  const getCurrentUserRole = () => currentUser?.rol || 'vendedor';
+  const getCurrentUserRole = () => currentUser?.role || currentUser?.rol || 'vendedor';
 
-  const checkFeatureLimit = async (feature) => {
-    if (!currentUser) return { allowed: false, current: 0, limit: 0, plan: 'gratis' };
+  const checkFeatureLimit = async () => {
+    if (!currentUser) return { allowed: true, current: 0, limit: -1, plan: 'gratis' };
     try {
-      const response = await apiServerClient.fetch('/features/validate-feature-limit', {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch('http://localhost:3000/features/validate-feature-limit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: currentUser.id,
-          feature
-        })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
       });
-      if (!response.ok) throw new Error('Failed to check limit');
+      if (!response.ok) throw new Error();
       return await response.json();
-    } catch (error) {
-      console.error('Feature limit check error:', error);
-      return { allowed: true, current: 0, limit: -1, plan: getCurrentUserPlan() }; // Fallback
+    } catch {
+      return { allowed: true, current: 0, limit: -1, plan: getCurrentUserPlan() };
     }
   };
 
   const value = {
     currentUser,
-    login,
-    signup,
-    logout,
+    login, signup, logout,
     isAuthenticated: !!currentUser,
     getCurrentUserPlan,
     getCurrentUserRole,

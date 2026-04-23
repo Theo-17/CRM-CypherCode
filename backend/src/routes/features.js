@@ -1,43 +1,23 @@
-import 'dotenv/config';
 import express from 'express';
-import pb from '../utils/pocketbaseClient.js';
+import prisma from '../lib/prisma.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 
-const FEATURE_LIMITS = {
-  gratis: 5,
-  pro: 50,
-  enterprise: Infinity,
-};
+const FEATURE_LIMITS = { gratis: 5, pro: 50, enterprise: Infinity };
 
-// POST /validate-feature-limit
-router.post('/validate-feature-limit', async (req, res) => {
-  const { userId } = req.body;
-
-  if (!userId) {
-    return res.status(400).json({ error: 'userId is required' });
+router.post('/validate-feature-limit', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const plan = user?.plan || 'gratis';
+    const limit = FEATURE_LIMITS[plan] ?? 5;
+    const current = await prisma.cliente.count({ where: { usuario_id: userId } });
+    const allowed = current < limit;
+    res.json({ allowed, current, limit: limit === Infinity ? -1 : limit, plan });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al validar límite' });
   }
-
-  // Fetch user's plan from users collection
-  const user = await pb.collection('users').getOne(userId);
-  const plan = user.plan || 'gratis';
-
-  // Get the limit for this plan
-  const limit = FEATURE_LIMITS[plan] ?? 5; // Default to gratis limit if plan not found
-
-  // Count current clients using getList with pagination
-  const clientsResult = await pb.collection('clientes').getList(1, 1, {
-    filter: `usuario_id="${userId}"`,
-  });
-
-  const current = clientsResult.totalItems;
-  const allowed = current < limit;
-
-  res.json({
-    allowed,
-    current,
-    limit: limit === Infinity ? -1 : limit, // Return -1 for unlimited
-  });
 });
 
 export default router;

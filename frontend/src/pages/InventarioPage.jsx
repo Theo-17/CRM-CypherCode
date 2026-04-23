@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { useAuth } from '@/contexts/AuthContext';
-import pb from '@/lib/pocketbaseClient';
+import api from '@/lib/apiServerClient';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import FormModal from '@/components/FormModal';
@@ -24,28 +24,20 @@ const InventarioPage = () => {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [formData, setFormData] = useState({
-    nombre: '', descripcion: '', precio: '', costo: '', stock: '', sku: '', categoria: ''
-  });
+  const [formData, setFormData] = useState({ nombre: '', descripcion: '', precio: '', costo: '', stock: '', sku: '', categoria: '' });
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     try {
       const [prodData, movData] = await Promise.all([
-        pb.collection('productos').getFullList({ sort: '-created', $autoCancel: false }),
-        pb.collection('inventario_movimientos').getFullList({ 
-          sort: '-fecha', 
-          expand: 'producto_id',
-          $autoCancel: false 
-        })
+        api.get('/api/productos'),
+        api.get('/api/productos/movimientos')
       ]);
       setProductos(prodData);
       setMovimientos(movData);
-    } catch (error) {
+    } catch {
       toast.error('Error al cargar el inventario');
     } finally {
       setLoading(false);
@@ -55,15 +47,7 @@ const InventarioPage = () => {
   const handleOpenModal = (product = null) => {
     if (product) {
       setEditingProduct(product);
-      setFormData({
-        nombre: product.nombre,
-        descripcion: product.descripcion || '',
-        precio: product.precio,
-        costo: product.costo,
-        stock: product.stock,
-        sku: product.sku,
-        categoria: product.categoria || ''
-      });
+      setFormData({ nombre: product.nombre, descripcion: product.descripcion || '', precio: product.precio, costo: product.costo || '', stock: product.stock, sku: product.sku || '', categoria: product.categoria || '' });
     } else {
       setEditingProduct(null);
       setFormData({ nombre: '', descripcion: '', precio: '', costo: '', stock: '', sku: '', categoria: '' });
@@ -75,38 +59,11 @@ const InventarioPage = () => {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const data = {
-        ...formData,
-        precio: Number(formData.precio),
-        costo: Number(formData.costo),
-        stock: Number(formData.stock)
-      };
-
       if (editingProduct) {
-        const stockDiff = data.stock - editingProduct.stock;
-        await pb.collection('productos').update(editingProduct.id, data, { $autoCancel: false });
-        
-        if (stockDiff !== 0) {
-          await pb.collection('inventario_movimientos').create({
-            producto_id: editingProduct.id,
-            tipo: stockDiff > 0 ? 'entrada' : 'salida',
-            cantidad: Math.abs(stockDiff),
-            motivo: 'Ajuste manual',
-            fecha: new Date().toISOString()
-          }, { $autoCancel: false });
-        }
+        await api.put(`/api/productos/${editingProduct.id}`, formData);
         toast.success('Producto actualizado');
       } else {
-        const newProd = await pb.collection('productos').create(data, { $autoCancel: false });
-        if (data.stock > 0) {
-          await pb.collection('inventario_movimientos').create({
-            producto_id: newProd.id,
-            tipo: 'entrada',
-            cantidad: data.stock,
-            motivo: 'Inventario inicial',
-            fecha: new Date().toISOString()
-          }, { $autoCancel: false });
-        }
+        await api.post('/api/productos', formData);
         toast.success('Producto creado');
       }
       setModalOpen(false);
@@ -129,29 +86,16 @@ const InventarioPage = () => {
           <Sidebar />
           <main className="flex-1 p-8">
             <div className="flex justify-between items-center mb-8">
-              <div>
-                <h1 className="text-3xl font-bold mb-2">Inventario</h1>
-                <p className="text-muted-foreground">Gestiona tus productos y existencias</p>
-              </div>
-              <Button onClick={() => handleOpenModal()}>
-                <Plus className="h-4 w-4 mr-2" /> Nuevo Producto
-              </Button>
+              <div><h1 className="text-3xl font-bold mb-2">Inventario</h1><p className="text-muted-foreground">Gestiona tus productos y existencias</p></div>
+              <Button onClick={() => handleOpenModal()}><Plus className="h-4 w-4 mr-2" />Nuevo Producto</Button>
             </div>
 
             {lowStockProducts.length > 0 && (
               <Card className="mb-8 border-destructive/50 bg-destructive/5">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-destructive flex items-center gap-2 text-lg">
-                    <AlertTriangle className="h-5 w-5" /> Alertas de Stock Bajo
-                  </CardTitle>
-                </CardHeader>
+                <CardHeader className="pb-2"><CardTitle className="text-destructive flex items-center gap-2 text-lg"><AlertTriangle className="h-5 w-5" />Alertas de Stock Bajo</CardTitle></CardHeader>
                 <CardContent>
                   <div className="flex flex-wrap gap-2">
-                    {lowStockProducts.map(p => (
-                      <Badge key={p.id} variant="outline" className="bg-destructive/10 text-destructive border-destructive/20">
-                        {p.nombre} ({p.stock} unid.)
-                      </Badge>
-                    ))}
+                    {lowStockProducts.map(p => <Badge key={p.id} variant="outline" className="bg-destructive/10 text-destructive border-destructive/20">{p.nombre} ({p.stock} unid.)</Badge>)}
                   </div>
                 </CardContent>
               </Card>
@@ -159,68 +103,45 @@ const InventarioPage = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <Card className="lg:col-span-2">
-                <CardHeader>
-                  <CardTitle>Productos</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle>Productos</CardTitle></CardHeader>
                 <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="border-b bg-muted/50">
-                        <tr>
-                          <th className="text-left p-4 font-medium">Producto</th>
-                          <th className="text-left p-4 font-medium">SKU</th>
-                          <th className="text-left p-4 font-medium">Categoría</th>
-                          <th className="text-right p-4 font-medium">Precio</th>
-                          <th className="text-right p-4 font-medium">Stock</th>
-                          <th className="text-right p-4 font-medium">Acciones</th>
+                  <table className="w-full">
+                    <thead className="border-b bg-muted/50">
+                      <tr>
+                        <th className="text-left p-4 font-medium">Producto</th>
+                        <th className="text-left p-4 font-medium">SKU</th>
+                        <th className="text-left p-4 font-medium">Categoría</th>
+                        <th className="text-right p-4 font-medium">Precio</th>
+                        <th className="text-right p-4 font-medium">Stock</th>
+                        <th className="text-right p-4 font-medium">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loading ? (
+                        <tr><td colSpan="6" className="p-4"><Skeleton className="h-12 w-full" /></td></tr>
+                      ) : productos.length === 0 ? (
+                        <tr><td colSpan="6" className="p-8 text-center text-muted-foreground"><Package className="h-8 w-8 mx-auto mb-2 opacity-50" />No hay productos</td></tr>
+                      ) : productos.map(p => (
+                        <tr key={p.id} className="border-b hover:bg-muted/50">
+                          <td className="p-4 font-medium">{p.nombre}</td>
+                          <td className="p-4 text-sm text-muted-foreground">{p.sku || '-'}</td>
+                          <td className="p-4 text-sm text-muted-foreground">{p.categoria || '-'}</td>
+                          <td className="p-4 text-right">${Number(p.precio).toFixed(2)}</td>
+                          <td className="p-4 text-right"><Badge variant="outline" className={p.stock < 5 ? 'bg-destructive/10 text-destructive' : ''}>{p.stock}</Badge></td>
+                          <td className="p-4 text-right"><Button variant="ghost" size="sm" onClick={() => handleOpenModal(p)}><Edit className="h-4 w-4" /></Button></td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {loading ? (
-                          <tr><td colSpan="6" className="p-4"><Skeleton className="h-12 w-full" /></td></tr>
-                        ) : productos.length === 0 ? (
-                          <tr>
-                            <td colSpan="6" className="p-8 text-center text-muted-foreground">
-                              <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                              No hay productos registrados
-                            </td>
-                          </tr>
-                        ) : (
-                          productos.map((p) => (
-                            <tr key={p.id} className="border-b hover:bg-muted/50 transition-colors">
-                              <td className="p-4 font-medium">{p.nombre}</td>
-                              <td className="p-4 text-sm text-muted-foreground">{p.sku}</td>
-                              <td className="p-4 text-sm text-muted-foreground">{p.categoria || '-'}</td>
-                              <td className="p-4 text-right">${p.precio.toFixed(2)}</td>
-                              <td className="p-4 text-right">
-                                <Badge variant="outline" className={p.stock < 5 ? 'bg-[hsl(var(--alert-low-stock))]/10 text-[hsl(var(--alert-low-stock))] border-[hsl(var(--alert-low-stock))]/20' : ''}>
-                                  {p.stock}
-                                </Badge>
-                              </td>
-                              <td className="p-4 text-right">
-                                <Button variant="ghost" size="sm" onClick={() => handleOpenModal(p)}>
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                      ))}
+                    </tbody>
+                  </table>
                 </CardContent>
               </Card>
 
               <Card>
-                <CardHeader>
-                  <CardTitle>Últimos Movimientos</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle>Últimos Movimientos</CardTitle></CardHeader>
                 <CardContent>
-                  {loading ? (
-                    <div className="space-y-4"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
-                  ) : movimientos.length === 0 ? (
-                    <p className="text-center text-muted-foreground py-4">No hay movimientos</p>
-                  ) : (
+                  {loading ? <div className="space-y-4"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
+                  : movimientos.length === 0 ? <p className="text-center text-muted-foreground py-4">No hay movimientos</p>
+                  : (
                     <div className="space-y-4">
                       {movimientos.slice(0, 10).map(m => (
                         <div key={m.id} className="flex items-start gap-3 border-b pb-3 last:border-0">
@@ -248,34 +169,13 @@ const InventarioPage = () => {
       <FormModal open={modalOpen} onOpenChange={setModalOpen} title={editingProduct ? 'Editar Producto' : 'Nuevo Producto'}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2 col-span-2">
-              <Label>Nombre *</Label>
-              <Input value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} required />
-            </div>
-            <div className="space-y-2">
-              <Label>SKU *</Label>
-              <Input value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} required />
-            </div>
-            <div className="space-y-2">
-              <Label>Categoría</Label>
-              <Input value={formData.categoria} onChange={e => setFormData({...formData, categoria: e.target.value})} />
-            </div>
-            <div className="space-y-2">
-              <Label>Precio de Venta *</Label>
-              <Input type="number" step="0.01" min="0" value={formData.precio} onChange={e => setFormData({...formData, precio: e.target.value})} required />
-            </div>
-            <div className="space-y-2">
-              <Label>Costo *</Label>
-              <Input type="number" step="0.01" min="0" value={formData.costo} onChange={e => setFormData({...formData, costo: e.target.value})} required />
-            </div>
-            <div className="space-y-2 col-span-2">
-              <Label>Stock Actual *</Label>
-              <Input type="number" min="0" value={formData.stock} onChange={e => setFormData({...formData, stock: e.target.value})} required />
-            </div>
-            <div className="space-y-2 col-span-2">
-              <Label>Descripción</Label>
-              <Textarea value={formData.descripcion} onChange={e => setFormData({...formData, descripcion: e.target.value})} rows={2} />
-            </div>
+            <div className="space-y-2 col-span-2"><Label>Nombre *</Label><Input value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} required /></div>
+            <div className="space-y-2"><Label>SKU</Label><Input value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} /></div>
+            <div className="space-y-2"><Label>Categoría</Label><Input value={formData.categoria} onChange={e => setFormData({...formData, categoria: e.target.value})} /></div>
+            <div className="space-y-2"><Label>Precio de Venta *</Label><Input type="number" step="0.01" min="0" value={formData.precio} onChange={e => setFormData({...formData, precio: e.target.value})} required /></div>
+            <div className="space-y-2"><Label>Costo</Label><Input type="number" step="0.01" min="0" value={formData.costo} onChange={e => setFormData({...formData, costo: e.target.value})} /></div>
+            <div className="space-y-2 col-span-2"><Label>Stock Actual *</Label><Input type="number" min="0" value={formData.stock} onChange={e => setFormData({...formData, stock: e.target.value})} required /></div>
+            <div className="space-y-2 col-span-2"><Label>Descripción</Label><Textarea value={formData.descripcion} onChange={e => setFormData({...formData, descripcion: e.target.value})} rows={2} /></div>
           </div>
           <div className="flex justify-end gap-3 pt-4">
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>

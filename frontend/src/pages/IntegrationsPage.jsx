@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { useAuth } from '@/contexts/AuthContext';
-import apiServerClient from '@/lib/apiServerClient';
-import pb from '@/lib/pocketbaseClient';
+import api from '@/lib/apiServerClient';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,34 +14,15 @@ const IntegrationsPage = () => {
   const [integrations, setIntegrations] = useState([]);
 
   useEffect(() => {
-    fetchIntegrations();
-  }, []);
+    if (!currentUser) return;
+    api.get('/api/integraciones').then(setIntegrations).catch(() => {});
+  }, [currentUser]);
 
-  const fetchIntegrations = async () => {
-    try {
-      const records = await pb.collection('integraciones').getFullList({
-        filter: `usuario_id = "${currentUser.id}"`,
-        $autoCancel: false
-      });
-      setIntegrations(records);
-    } catch (error) {
-      console.error('Error fetching integrations:', error);
-    }
+  const handleGoogleConnect = () => {
+    toast.info('Integración con Google Calendar próximamente');
   };
 
-  const handleGoogleConnect = async () => {
-    try {
-      const res = await apiServerClient.fetch(`/google-calendar/auth?userId=${currentUser.id}`);
-      const data = await res.json();
-      if (data.authUrl) {
-        window.location.href = data.authUrl;
-      }
-    } catch (error) {
-      toast.error('Error al conectar con Google Calendar');
-    }
-  };
-
-  const isConnected = (type) => integrations.some(i => i.tipo === type && i.conectada);
+  const isConnected = (type) => integrations.some(i => i.proveedor === type && i.activa);
 
   return (
     <>
@@ -85,7 +65,7 @@ const IntegrationsPage = () => {
                   {isConnected('slack') ? (
                     <Button variant="outline" className="text-green-600 border-green-200 bg-green-50">Conectado</Button>
                   ) : (
-                    <Button variant="secondary">Configurar Webhook</Button>
+                    <Button variant="secondary" onClick={() => toast.info('Configura el webhook de Slack en el panel de Slack')}>Configurar Webhook</Button>
                   )}
                 </CardContent>
               </Card>

@@ -17,6 +17,7 @@
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.0",
     "pocketbase": "^0.26.8",
+    "resend": "^6.12.2",
     "stripe": "^14.0.0"
   },
   "devDependencies": {

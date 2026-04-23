@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
-import pb from '@/lib/pocketbaseClient';
+import api from '@/lib/apiServerClient';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
@@ -17,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { ArrowLeft, Mail, Phone, Building2, Calendar, CheckSquare, Edit, Send } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, Edit, Send } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -31,36 +31,29 @@ const ClientDetailPage = () => {
   const [emails, setEmails] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // Edit Client State
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editFormData, setEditFormData] = useState({});
-  
-  // Send Email State
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [emailData, setEmailData] = useState({ templateId: 'custom', asunto: '', contenido: '' });
   const [sendingEmail, setSendingEmail] = useState(false);
 
-  useEffect(() => {
-    fetchClientData();
-  }, [id]);
+  useEffect(() => { fetchClientData(); }, [id]);
 
   const fetchClientData = async () => {
     try {
       const [clienteData, tareasData, seguimientosData, emailsData, templatesData] = await Promise.all([
-        pb.collection('clientes').getOne(id, { $autoCancel: false }),
-        pb.collection('tareas').getFullList({ filter: `cliente_id = "${id}"`, sort: '-created', $autoCancel: false }),
-        pb.collection('seguimientos').getFullList({ filter: `cliente_id = "${id}"`, sort: '-fecha', $autoCancel: false }),
-        pb.collection('emails_enviados').getFullList({ filter: `cliente_id = "${id}"`, sort: '-fecha_envio', $autoCancel: false }),
-        pb.collection('plantillas_email').getFullList({ filter: `usuario_id = "${currentUser.id}"`, $autoCancel: false })
+        api.get(`/api/clientes/${id}`),
+        api.get(`/api/tareas/cliente/${id}`),
+        api.get(`/api/seguimientos/cliente/${id}`),
+        api.get(`/api/emails/cliente/${id}`),
+        api.get('/api/plantillas')
       ]);
-
       setCliente(clienteData);
       setTareas(tareasData);
       setSeguimientos(seguimientosData);
       setEmails(emailsData);
       setTemplates(templatesData);
-    } catch (error) {
+    } catch {
       toast.error('Error al cargar los datos del cliente');
       navigate('/clientes');
     } finally {
@@ -71,11 +64,11 @@ const ClientDetailPage = () => {
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     try {
-      const updated = await pb.collection('clientes').update(id, editFormData, { $autoCancel: false });
+      const updated = await api.put(`/api/clientes/${id}`, editFormData);
       setCliente(updated);
       setEditModalOpen(false);
       toast.success('Cliente actualizado');
-    } catch (error) {
+    } catch {
       toast.error('Error al actualizar cliente');
     }
   };
@@ -85,18 +78,11 @@ const ClientDetailPage = () => {
     if (!emailData.asunto || !emailData.contenido) return toast.error('Asunto y contenido requeridos');
     setSendingEmail(true);
     try {
-      await pb.collection('emails_enviados').create({
-        usuario_id: currentUser.id,
-        cliente_id: id,
-        asunto: emailData.asunto,
-        contenido: emailData.contenido,
-        fecha_envio: new Date().toISOString(),
-        abierto: false
-      }, { $autoCancel: false });
-      toast.success('Email registrado exitosamente');
+      await api.post('/api/emails', { cliente_id: id, asunto: emailData.asunto, contenido: emailData.contenido });
+      toast.success('Email registrado');
       setEmailModalOpen(false);
       fetchClientData();
-    } catch (error) {
+    } catch {
       toast.error('Error al registrar email');
     } finally {
       setSendingEmail(false);
@@ -113,10 +99,9 @@ const ClientDetailPage = () => {
   };
 
   if (loading) return <div className="min-h-screen bg-background p-8"><Skeleton className="h-8 w-64 mb-8" /></div>;
+  if (!cliente) return null;
 
-  const daysSinceLastEmail = emails.length > 0 
-    ? differenceInDays(new Date(), new Date(emails[0].fecha_envio)) 
-    : null;
+  const daysSinceLastEmail = emails.length > 0 ? differenceInDays(new Date(), new Date(emails[0].fecha_envio)) : null;
 
   return (
     <>
@@ -126,30 +111,21 @@ const ClientDetailPage = () => {
         <div className="flex">
           <Sidebar />
           <main className="flex-1 p-8">
-            <Button variant="ghost" onClick={() => navigate('/clientes')} className="mb-6">
-              <ArrowLeft className="h-4 w-4 mr-2" /> Volver a Clientes
-            </Button>
+            <Button variant="ghost" onClick={() => navigate('/clientes')} className="mb-6"><ArrowLeft className="h-4 w-4 mr-2" />Volver a Clientes</Button>
 
             <div className="flex justify-between items-start mb-8">
               <div>
                 <div className="flex items-center gap-3 mb-2">
                   <h1 className="text-3xl font-bold">{cliente.nombre}</h1>
                   <StatusBadge status={cliente.estado} type="client" />
-                  {cliente.estado_conversion && (
-                    <Badge variant="outline" className="capitalize">{cliente.estado_conversion.replace('_', ' ')}</Badge>
-                  )}
+                  {cliente.estado_conversion && <Badge variant="outline" className="capitalize">{cliente.estado_conversion.replace('_', ' ')}</Badge>}
                 </div>
                 {cliente.empresa && <p className="text-muted-foreground">{cliente.empresa}</p>}
-                {daysSinceLastEmail !== null && (
-                  <p className="text-sm text-muted-foreground mt-2">Último email enviado: hace {daysSinceLastEmail} días</p>
-                )}
+                {daysSinceLastEmail !== null && <p className="text-sm text-muted-foreground mt-2">Último email: hace {daysSinceLastEmail} días</p>}
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => {
-                  setEditFormData(cliente);
-                  setEditModalOpen(true);
-                }}><Edit className="h-4 w-4 mr-2" /> Editar</Button>
-                <Button onClick={() => setEmailModalOpen(true)}><Send className="h-4 w-4 mr-2" /> Enviar Email</Button>
+                <Button variant="outline" onClick={() => { setEditFormData(cliente); setEditModalOpen(true); }}><Edit className="h-4 w-4 mr-2" />Editar</Button>
+                <Button onClick={() => setEmailModalOpen(true)}><Send className="h-4 w-4 mr-2" />Enviar Email</Button>
               </div>
             </div>
 
@@ -157,29 +133,13 @@ const ClientDetailPage = () => {
               <Card>
                 <CardHeader><CardTitle>Información</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                  {cliente.email && (
-                    <div className="flex items-center gap-3">
-                      <Mail className="h-5 w-5 text-muted-foreground" />
-                      <div><p className="text-sm text-muted-foreground">Email</p><p className="font-medium">{cliente.email}</p></div>
-                    </div>
-                  )}
-                  {cliente.telefono && (
-                    <div className="flex items-center gap-3">
-                      <Phone className="h-5 w-5 text-muted-foreground" />
-                      <div><p className="text-sm text-muted-foreground">Teléfono</p><p className="font-medium">{cliente.telefono}</p></div>
-                    </div>
-                  )}
+                  {cliente.email && <div className="flex items-center gap-3"><Mail className="h-5 w-5 text-muted-foreground" /><div><p className="text-sm text-muted-foreground">Email</p><p className="font-medium">{cliente.email}</p></div></div>}
+                  {cliente.telefono && <div className="flex items-center gap-3"><Phone className="h-5 w-5 text-muted-foreground" /><div><p className="text-sm text-muted-foreground">Teléfono</p><p className="font-medium">{cliente.telefono}</p></div></div>}
                   {cliente.estado_conversion === 'ganado' && cliente.valor_venta && (
-                    <div className="mt-4 p-3 bg-green-50 border border-green-100 rounded-lg">
-                      <p className="text-sm text-green-800 font-medium">Valor de Venta</p>
-                      <p className="text-lg font-bold text-green-900">${cliente.valor_venta}</p>
-                    </div>
+                    <div className="mt-4 p-3 bg-green-50 border border-green-100 rounded-lg"><p className="text-sm text-green-800 font-medium">Valor de Venta</p><p className="text-lg font-bold text-green-900">${cliente.valor_venta}</p></div>
                   )}
                   {cliente.estado_conversion === 'perdido' && cliente.motivo_perdida && (
-                    <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg">
-                      <p className="text-sm text-red-800 font-medium">Motivo de Pérdida</p>
-                      <p className="text-sm text-red-900">{cliente.motivo_perdida}</p>
-                    </div>
+                    <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg"><p className="text-sm text-red-800 font-medium">Motivo de Pérdida</p><p className="text-sm text-red-900">{cliente.motivo_perdida}</p></div>
                   )}
                 </CardContent>
               </Card>
@@ -187,16 +147,11 @@ const ClientDetailPage = () => {
               <Card className="lg:col-span-2">
                 <CardHeader><CardTitle>Historial de Emails</CardTitle></CardHeader>
                 <CardContent>
-                  {emails.length === 0 ? (
-                    <p className="text-muted-foreground text-center py-4">No hay emails registrados</p>
-                  ) : (
+                  {emails.length === 0 ? <p className="text-muted-foreground text-center py-4">No hay emails registrados</p> : (
                     <div className="space-y-3">
                       {emails.map(email => (
                         <div key={email.id} className="p-3 border rounded-lg flex justify-between items-center">
-                          <div>
-                            <p className="font-medium">{email.asunto}</p>
-                            <p className="text-xs text-muted-foreground">{format(new Date(email.fecha_envio), 'dd MMM yyyy, HH:mm', { locale: es })}</p>
-                          </div>
+                          <div><p className="font-medium">{email.asunto}</p><p className="text-xs text-muted-foreground">{format(new Date(email.fecha_envio), 'dd MMM yyyy, HH:mm', { locale: es })}</p></div>
                           <Badge variant={email.abierto ? 'default' : 'secondary'}>{email.abierto ? 'Abierto' : 'Enviado'}</Badge>
                         </div>
                       ))}
@@ -208,25 +163,37 @@ const ClientDetailPage = () => {
               <Card className="lg:col-span-3">
                 <CardHeader><CardTitle>Seguimientos</CardTitle></CardHeader>
                 <CardContent>
-                  {seguimientos.length === 0 ? (
-                    <p className="text-muted-foreground text-center py-4">No hay seguimientos</p>
-                  ) : (
+                  {seguimientos.length === 0 ? <p className="text-muted-foreground text-center py-4">No hay seguimientos</p> : (
                     <div className="space-y-4">
                       {seguimientos.map(seg => (
                         <div key={seg.id} className="flex gap-4 border-b pb-4 last:border-0">
-                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                            {seg.tipo[0]}
-                          </div>
-                          <div>
-                            <p className="font-medium">{seg.tipo} <span className="text-sm text-muted-foreground font-normal ml-2">{format(new Date(seg.fecha), 'dd MMM yyyy, HH:mm', { locale: es })}</span></p>
-                            <p className="text-sm mt-1">{seg.notas}</p>
-                          </div>
+                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">{seg.tipo[0]}</div>
+                          <div><p className="font-medium">{seg.tipo} <span className="text-sm text-muted-foreground font-normal ml-2">{format(new Date(seg.fecha), 'dd MMM yyyy, HH:mm', { locale: es })}</span></p>{seg.notas && <p className="text-sm mt-1">{seg.notas}</p>}</div>
                         </div>
                       ))}
                     </div>
                   )}
                 </CardContent>
               </Card>
+
+              {tareas.length > 0 && (
+                <Card className="lg:col-span-3">
+                  <CardHeader><CardTitle>Tareas</CardTitle></CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {tareas.map(t => (
+                        <div key={t.id} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <PriorityBadge priority={t.prioridad} />
+                            <span className="font-medium">{t.titulo}</span>
+                          </div>
+                          <StatusBadge status={t.estado} type="task" />
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </main>
         </div>
@@ -238,7 +205,8 @@ const ClientDetailPage = () => {
             <div className="space-y-2 col-span-2"><Label>Nombre</Label><Input value={editFormData.nombre || ''} onChange={e => setEditFormData({...editFormData, nombre: e.target.value})} required /></div>
             <div className="space-y-2"><Label>Email</Label><Input value={editFormData.email || ''} onChange={e => setEditFormData({...editFormData, email: e.target.value})} /></div>
             <div className="space-y-2"><Label>Teléfono</Label><Input value={editFormData.telefono || ''} onChange={e => setEditFormData({...editFormData, telefono: e.target.value})} /></div>
-            <div className="space-y-2"><Label>Estado Conversión</Label>
+            <div className="space-y-2">
+              <Label>Estado Conversión</Label>
               <Select value={editFormData.estado_conversion || 'prospecto'} onValueChange={v => setEditFormData({...editFormData, estado_conversion: v})}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>

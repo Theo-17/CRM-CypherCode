@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { useAuth } from '@/contexts/AuthContext';
-import pb from '@/lib/pocketbaseClient';
+import api from '@/lib/apiServerClient';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,56 +12,45 @@ import startOfWeek from 'date-fns/startOfWeek';
 import getDay from 'date-fns/getDay';
 import esLocale from 'date-fns/locale/es';
 
-const locales = {
-  'es': esLocale,
-};
+const locales = { es: esLocale };
 
-const localizer = dateFnsLocalizer({
-  format,
-  parse,
-  startOfWeek,
-  getDay,
-  locales,
-});
+const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
 
 const CalendarPage = () => {
   const { currentUser } = useAuth();
   const [events, setEvents] = useState([]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (!currentUser) return;
+    Promise.all([
+      api.get('/api/tareas'),
+      api.get('/api/seguimientos'),
+    ]).then(([tareas, seguimientos]) => {
+      const taskEvents = tareas
+        .filter(t => t.fecha_vencimiento)
+        .map(t => ({
+          id: t.id,
+          title: `[Tarea] ${t.titulo}`,
+          start: new Date(t.fecha_vencimiento),
+          end: new Date(t.fecha_vencimiento),
+          allDay: true,
+          resource: t,
+        }));
 
-  const fetchData = async () => {
-    try {
-      const [tareas, seguimientos] = await Promise.all([
-        pb.collection('tareas').getFullList({ filter: `usuario_id = "${currentUser.id}"`, $autoCancel: false }),
-        pb.collection('seguimientos').getFullList({ filter: `usuario_id = "${currentUser.id}"`, $autoCancel: false })
-      ]);
-
-      const taskEvents = tareas.filter(t => t.fecha_vencimiento).map(t => ({
-        id: t.id,
-        title: `[Tarea] ${t.titulo}`,
-        start: new Date(t.fecha_vencimiento),
-        end: new Date(t.fecha_vencimiento),
-        allDay: true,
-        resource: t
-      }));
-
-      const segEvents = seguimientos.filter(s => s.fecha).map(s => ({
-        id: s.id,
-        title: `[${s.tipo}] Seguimiento`,
-        start: new Date(s.fecha),
-        end: new Date(s.fecha),
-        allDay: true,
-        resource: s
-      }));
+      const segEvents = seguimientos
+        .filter(s => s.fecha)
+        .map(s => ({
+          id: s.id,
+          title: `[${s.tipo}] Seguimiento`,
+          start: new Date(s.fecha),
+          end: new Date(s.fecha),
+          allDay: true,
+          resource: s,
+        }));
 
       setEvents([...taskEvents, ...segEvents]);
-    } catch (error) {
-      console.error('Error fetching calendar data:', error);
-    }
-  };
+    }).catch(console.error);
+  }, [currentUser]);
 
   return (
     <>
@@ -83,14 +72,7 @@ const CalendarPage = () => {
                   startAccessor="start"
                   endAccessor="end"
                   culture="es"
-                  messages={{
-                    next: "Sig",
-                    previous: "Ant",
-                    today: "Hoy",
-                    month: "Mes",
-                    week: "Semana",
-                    day: "Día"
-                  }}
+                  messages={{ next: 'Sig', previous: 'Ant', today: 'Hoy', month: 'Mes', week: 'Semana', day: 'Día' }}
                   style={{ height: '100%' }}
                 />
               </CardContent>

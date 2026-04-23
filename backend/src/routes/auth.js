@@ -1,79 +1,66 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../lib/prisma.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-me';
 
-// Registrar nuevo usuario
+const userResponse = (user) => ({
+  id: user.id,
+  email: user.email,
+  name: user.name,
+  role: user.role,
+  rol: user.role,
+  plan: user.plan || 'gratis',
+  created: user.created
+});
+
 router.post('/signup', async (req, res) => {
   try {
     const { email, password, name } = req.body;
+    const existing = await prisma.user.findFirst({ where: { email } });
+    if (existing) return res.status(400).json({ message: 'El usuario ya existe' });
 
-    // Verificar si ya existe
-    const existingUser = await prisma.user.findFirst({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ message: 'El usuario ya existe' });
-    }
-
-    // Hashear contraseña
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
-
-    // Crear en BD
     const user = await prisma.user.create({
-      data: {
-        email,
-        password: passwordHash,
-        name,
-        role: 'vendedor'
-      }
+      data: { email, password: passwordHash, name, role: 'vendedor', plan: 'gratis' }
     });
 
-    // Crear token
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-
-    res.status(201).json({
-      token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role }
-    });
-
+    res.status(201).json({ token, user: userResponse(user) });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Error en el servidor al registrarse' });
   }
 });
 
-// Iniciar sesión
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    // Buscar en BD
     const user = await prisma.user.findFirst({ where: { email } });
-    if (!user) {
-      return res.status(400).json({ message: 'Credenciales inválidas' });
-    }
+    if (!user) return res.status(400).json({ message: 'Credenciales inválidas' });
 
-    // Verificar contraseña
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) {
-      return res.status(400).json({ message: 'Credenciales inválidas' });
-    }
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return res.status(400).json({ message: 'Credenciales inválidas' });
 
-    // Crear token
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-
-    res.json({
-      token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role }
-    });
-
+    res.json({ token, user: userResponse(user) });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Error en el servidor al iniciar sesión' });
+  }
+});
+
+router.get('/me', authMiddleware, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
+    res.json({ user: userResponse(user) });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener usuario' });
   }
 });
 

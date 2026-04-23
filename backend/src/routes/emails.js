@@ -1,87 +1,95 @@
-import 'dotenv/config';
 import express from 'express';
-import pb from '../utils/pocketbaseClient.js';
-import logger from '../utils/logger.js';
+import prisma from '../lib/prisma.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { Resend } from 'resend';
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const router = express.Router();
 
-// POST /send-email
-router.post('/send-email', async (req, res) => {
-  const { clienteId, templateId, asunto, contenido, destinatario } = req.body;
-
-  if (!clienteId || !templateId || !asunto || !contenido || !destinatario) {
-    return res.status(400).json({ error: 'Missing required fields: clienteId, templateId, asunto, contenido, destinatario' });
-  }
-
-  // Validate email format
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(destinatario)) {
-    return res.status(400).json({ error: 'Invalid email format' });
-  }
-
-  // Use PocketBase built-in mailer via admin API
-  // Note: PocketBase handles email sending through its built-in mailer
-  // We'll log the email record and rely on PocketBase hooks for actual sending
-  const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-  const emailRecord = await pb.collection('emails_enviados').create({
-    cliente: clienteId,
-    template: templateId,
-    asunto,
-    contenido,
-    destinatario,
-    abierto: false,
-    message_id: messageId,
-    fecha_envio: new Date().toISOString(),
-  });
-
-  logger.info(`Email logged with messageId: ${messageId} for cliente: ${clienteId}`);
-
-  res.json({
-    success: true,
-    messageId,
-    recordId: emailRecord.id,
-  });
+const mapEmail = (e) => ({
+  ...e,
+  contenido: e.cuerpo,
+  abierto: e.estado !== 'enviado'
 });
 
-// POST /email-tracking/:messageId
-router.post('/email-tracking/:messageId', async (req, res) => {
-  const { messageId } = req.params;
-
-  if (!messageId) {
-    return res.status(400).json({ error: 'messageId is required' });
-  }
-
-  // Find email record by message_id
-  const emails = await pb.collection('emails_enviados').getFullList({
-    filter: `message_id = "${messageId}"`,
-  });
-
-  if (emails.length > 0) {
-    // Mark as opened
-    await pb.collection('emails_enviados').update(emails[0].id, {
-      abierto: true,
-      fecha_apertura: new Date().toISOString(),
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const emails = await prisma.emailEnviado.findMany({
+      where: { usuario_id: req.user.id },
+      include: { Cliente: true },
+      orderBy: { fecha_envio: 'desc' }
     });
-    logger.info(`Email opened: ${messageId}`);
-  } else {
-    logger.warn(`Email not found for tracking: ${messageId}`);
+    res.json(emails.map(e => ({
+      ...mapEmail(e),
+      expand: { cliente_id: e.Cliente }
+    })));
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener emails' });
   }
+});
 
-  // Return 1x1 transparent GIF pixel
-  const gifBuffer = Buffer.from([
-    0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00,
-    0x01, 0x00, 0x80, 0x00, 0x00, 0xff, 0xff, 0xff,
-    0x00, 0x00, 0x00, 0x21, 0xf9, 0x04, 0x01, 0x0a,
-    0x00, 0x01, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00,
-    0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44,
-    0x01, 0x00, 0x3b,
-  ]);
+router.get('/cliente/:clienteId', authMiddleware, async (req, res) => {
+  try {
+    const emails = await prisma.emailEnviado.findMany({
+      where: { cliente_id: req.params.clienteId },
+      orderBy: { fecha_envio: 'desc' }
+    });
+    res.json(emails.map(mapEmail));
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener emails del cliente' });
+  }
+});
 
-  res.setHeader('Content-Type', 'image/gif');
-  res.setHeader('Content-Length', gifBuffer.length);
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.send(gifBuffer);
+router.post('/', authMiddleware, async (req, res) => {
+  try {
+    const { cliente_id, plantilla_id, asunto, contenido } = req.body;
+    if (!asunto) return res.status(400).json({ message: 'El asunto es obligatorio' });
+
+    let realSent = false;
+    if (resend && cliente_id) {
+      try {
+        const cliente = await prisma.cliente.findUnique({ where: { id: cliente_id } });
+        if (cliente?.email) {
+          await resend.emails.send({
+            from: process.env.EMAIL_FROM || 'CRM <noreply@resend.dev>',
+            to: [cliente.email],
+            subject: asunto,
+            html: `<div style="font-family:sans-serif">${(contenido || '').replace(/\n/g, '<br>')}</div>`,
+          });
+          realSent = true;
+        }
+      } catch (sendErr) {
+        console.error('Resend error:', sendErr.message);
+      }
+    }
+
+    const email = await prisma.emailEnviado.create({
+      data: {
+        usuario_id: req.user.id,
+        cliente_id: cliente_id || null,
+        plantilla_id: plantilla_id || null,
+        asunto,
+        cuerpo: contenido || '',
+        estado: 'enviado',
+        fecha_envio: new Date()
+      }
+    });
+
+    res.status(201).json({ ...mapEmail(email), realSent });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al registrar email' });
+  }
+});
+
+router.post('/email-tracking/:messageId', (req, res) => {
+  const pixel = Buffer.from(
+    'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+    'base64'
+  );
+  res.set('Content-Type', 'image/gif');
+  res.set('Content-Length', pixel.length);
+  res.end(pixel);
 });
 
 export default router;
