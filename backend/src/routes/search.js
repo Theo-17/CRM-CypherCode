@@ -11,7 +11,9 @@ router.get('/', async (req, res) => {
     if (!q) return res.json({ clientes: [], tareas: [], seguimientos: [] });
 
     const isAdmin = req.user.role === 'admin';
-    const whereBase = isAdmin ? {} : { usuario_id: req.user.id };
+    const whereBase = isAdmin
+      ? { company_id: req.user.company_id }
+      : { company_id: req.user.company_id, usuario_id: req.user.id };
 
     const [clientes, tareas, seguimientos] = await Promise.all([
       prisma.cliente.findMany({

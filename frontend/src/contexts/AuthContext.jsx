@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
+const API_URL = 'http://localhost:3000';
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -17,7 +18,7 @@ export const AuthProvider = ({ children }) => {
       const token = localStorage.getItem('auth_token');
       if (token) {
         try {
-          const response = await fetch('http://localhost:3000/api/auth/me', {
+          const response = await fetch(`${API_URL}/api/auth/me`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           if (response.ok) {
@@ -36,26 +37,49 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (email, password) => {
-    const response = await fetch('http://localhost:3000/api/auth/login', {
+    const response = await fetch(`${API_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Login failed');
+    if (!response.ok) throw Object.assign(new Error(data.message || 'Login failed'), { isPending: data.isPending, needsVerification: data.needsVerification });
     localStorage.setItem('auth_token', data.token);
     setCurrentUser(data.user);
     return data;
   };
 
-  const signup = async (name, email, password) => {
-    const response = await fetch('http://localhost:3000/api/auth/signup', {
+  const signup = async (name, email, password, companyName) => {
+    const response = await fetch(`${API_URL}/api/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password })
+      body: JSON.stringify({ name, email, password, companyName })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Signup failed');
+    if (data.needsVerification) return { needsVerification: true };
+    localStorage.setItem('auth_token', data.token);
+    setCurrentUser(data.user);
+    return data;
+  };
+
+  const checkEmail = async (email) => {
+    const response = await fetch(`${API_URL}/api/auth/check-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    return response.json();
+  };
+
+  const activateAccount = async (token, password) => {
+    const response = await fetch(`${API_URL}/api/auth/setup-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Error al activar cuenta');
     localStorage.setItem('auth_token', data.token);
     setCurrentUser(data.user);
     return data.user;
@@ -67,13 +91,13 @@ export const AuthProvider = ({ children }) => {
   };
 
   const getCurrentUserPlan = () => currentUser?.plan || 'gratis';
-  const getCurrentUserRole = () => currentUser?.role || currentUser?.rol || 'vendedor';
+  const getCurrentUserRole = () => currentUser?.role || currentUser?.rol || 'admin';
 
   const checkFeatureLimit = async () => {
     if (!currentUser) return { allowed: true, current: 0, limit: -1, plan: 'gratis' };
     try {
       const token = localStorage.getItem('auth_token');
-      const response = await fetch('http://localhost:3000/features/validate-feature-limit', {
+      const response = await fetch(`${API_URL}/features/validate-feature-limit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
       });
@@ -87,6 +111,7 @@ export const AuthProvider = ({ children }) => {
   const value = {
     currentUser,
     login, signup, logout,
+    checkEmail, activateAccount,
     isAuthenticated: !!currentUser,
     getCurrentUserPlan,
     getCurrentUserRole,

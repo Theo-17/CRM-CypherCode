@@ -7,7 +7,9 @@ router.use(authMiddleware);
 
 router.get('/', async (req, res) => {
   try {
-    const data = await prisma.integracion.findMany({ where: { usuario_id: req.user.id } });
+    const data = await prisma.integracion.findMany({
+      where: { company_id: req.user.company_id, usuario_id: req.user.id }
+    });
     res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });

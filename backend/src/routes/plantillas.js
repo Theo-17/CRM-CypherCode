@@ -1,6 +1,7 @@
 import express from 'express';
 import prisma from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { scopedWhere } from '../lib/scopeWhere.js';
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -10,7 +11,7 @@ const mapPlantilla = (p) => ({ ...p, contenido: p.cuerpo });
 router.get('/', async (req, res) => {
   try {
     const plantillas = await prisma.plantillaEmail.findMany({
-      where: { usuario_id: req.user.id },
+      where: scopedWhere(req),
       orderBy: { created: 'desc' }
     });
     res.json(plantillas.map(mapPlantilla));
@@ -26,7 +27,11 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Nombre, asunto y contenido son obligatorios' });
     }
     const plantilla = await prisma.plantillaEmail.create({
-      data: { usuario_id: req.user.id, nombre, asunto, cuerpo: contenido }
+      data: {
+        usuario_id: req.user.id,
+        company_id: req.user.company_id,
+        nombre, asunto, cuerpo: contenido
+      }
     });
     res.status(201).json(mapPlantilla(plantilla));
   } catch (error) {
@@ -37,7 +42,7 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const existing = await prisma.plantillaEmail.findFirst({
-      where: { id: req.params.id, usuario_id: req.user.id }
+      where: { id: req.params.id, company_id: req.user.company_id }
     });
     if (!existing) return res.status(404).json({ message: 'Plantilla no encontrada' });
 
@@ -55,7 +60,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const existing = await prisma.plantillaEmail.findFirst({
-      where: { id: req.params.id, usuario_id: req.user.id }
+      where: { id: req.params.id, company_id: req.user.company_id }
     });
     if (!existing) return res.status(404).json({ message: 'Plantilla no encontrada' });
 

@@ -19,7 +19,7 @@ import { Plus, Search, Grid3x3, List, Edit, Trash2, Eye } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const ClientesPage = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, checkFeatureLimit } = useAuth();
   const navigate = useNavigate();
   const [clientes, setClientes] = useState([]);
   const [filteredClientes, setFilteredClientes] = useState([]);
@@ -61,7 +61,14 @@ const ClientesPage = () => {
     setFilteredClientes(filtered);
   };
 
-  const handleOpenModal = (client = null) => {
+  const handleOpenModal = async (client = null) => {
+    if (!client) {
+      const limit = await checkFeatureLimit();
+      if (!limit.allowed) {
+        toast.error(`Límite de clientes alcanzado (${limit.current}/${limit.limit}). Actualiza tu plan.`);
+        return;
+      }
+    }
     if (client) {
       setEditingClient(client);
       setFormData({ nombre: client.nombre, email: client.email || '', telefono: client.telefono || '', empresa: client.empresa || '', estado: client.estado || 'Activo' });
@@ -220,7 +227,7 @@ const ClientesPage = () => {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2"><Label>Nombre *</Label><Input value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} required /></div>
           <div className="space-y-2"><Label>Email</Label><Input type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
-          <div className="space-y-2"><Label>Teléfono</Label><Input value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value})} /></div>
+          <div className="space-y-2"><Label>Teléfono</Label><Input value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value.replace(/[^0-9+\-\s]/g, '')})} placeholder="+1 234 567 8900" /></div>
           <div className="space-y-2"><Label>Empresa</Label><Input value={formData.empresa} onChange={e => setFormData({...formData, empresa: e.target.value})} /></div>
           <div className="space-y-2">
             <Label>Estado</Label>

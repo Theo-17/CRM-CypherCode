@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import api from '@/lib/apiServerClient';
 import Header from '@/components/Header';
@@ -25,6 +26,7 @@ import { es } from 'date-fns/locale';
 
 const TareasPage = () => {
   const { currentUser } = useAuth();
+  const location = useLocation();
   const [tareas, setTareas] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +41,13 @@ const TareasPage = () => {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
+
+  useEffect(() => {
+    if (!loading && location.state?.editId) {
+      const tarea = tareas.find(t => t.id === location.state.editId);
+      if (tarea) { handleOpenModal(tarea); window.history.replaceState({}, ''); }
+    }
+  }, [loading, tareas]);
 
   const fetchData = async () => {
     try {
@@ -68,7 +77,11 @@ const TareasPage = () => {
       setFormData({
         titulo: task.titulo, descripcion: task.descripcion || '',
         cliente_id: task.cliente_id || '', prioridad: task.prioridad || 'Media', estado: task.estado,
-        fecha_vencimiento: task.fecha_vencimiento ? new Date(task.fecha_vencimiento).toISOString().slice(0, 16) : ''
+        fecha_vencimiento: task.fecha_vencimiento ? (() => {
+          const d = new Date(task.fecha_vencimiento);
+          const pad = n => String(n).padStart(2, '0');
+          return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        })() : ''
       });
     } else {
       setEditingTask(null);

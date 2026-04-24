@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(grep -E \"\\\\.js$\")",
+      "Bash(npx prisma *)",
+      "Bash(node prisma/seed-migrate.js)",
+      "Bash(node prisma/fix-null-company.js)"
     ]
   }
 }

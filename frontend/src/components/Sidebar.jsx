@@ -11,7 +11,9 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Sidebar = () => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('sidebar_collapsed') === 'true'
+  );
   const location = useLocation();
   const { getCurrentUserRole } = useAuth();
   const role = getCurrentUserRole();
@@ -52,7 +54,7 @@ const Sidebar = () => {
     >
       <div className="flex flex-col h-full">
         <div className="flex items-center justify-end p-4">
-          <Button variant="ghost" size="icon" onClick={() => setCollapsed(!collapsed)} className="h-8 w-8">
+          <Button variant="ghost" size="icon" onClick={() => setCollapsed(v => { localStorage.setItem('sidebar_collapsed', String(!v)); return !v; })} className="h-8 w-8">
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </Button>
         </div>
@@ -96,4 +98,4 @@ const Sidebar = () => {
   );
 };
 
-export default Sidebar;
+export default React.memo(Sidebar);

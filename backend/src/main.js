@@ -8,6 +8,7 @@ import morgan from 'morgan';
 import routes from './routes/index.js';
 import { errorMiddleware } from './middleware/index.js';
 import logger from './utils/logger.js';
+import { startReminderCron } from './lib/reminderCron.js';
 
 
 const app = express();
@@ -55,6 +56,7 @@ const port = process.env.PORT || 3001;
 
 app.listen(port, () => {
 	logger.info(`🚀 API Server running on http://localhost:${port}`);
+	startReminderCron();
 });
 
 export default app;

@@ -5,13 +5,15 @@ import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Check } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Check, X } from 'lucide-react';
 import CheckoutModal from '@/components/CheckoutModal';
 
 const PricingPage = () => {
   const { getCurrentUserPlan } = useAuth();
   const currentPlan = getCurrentUserPlan();
   const [checkoutPlan, setCheckoutPlan] = useState(null);
+  const [detailPlan, setDetailPlan] = useState(null);
 
   const plans = [
     {
@@ -19,22 +21,61 @@ const PricingPage = () => {
       name: 'Gratis',
       price: 0,
       description: 'Para empezar a organizar tus ventas.',
-      features: ['Hasta 5 clientes', 'Hasta 10 tareas', 'Soporte básico'],
+      features: ['Hasta 5 clientes', '2 usuarios', 'Tareas y seguimientos', 'Pipeline de ventas', 'Calendario', 'Importar CSV'],
+      details: [
+        { label: 'Clientes', value: 'Hasta 5', included: true },
+        { label: 'Usuarios', value: '2', included: true },
+        { label: 'Tareas y seguimientos', value: 'Ilimitados', included: true },
+        { label: 'Pipeline de ventas', value: '4 etapas fijas', included: true },
+        { label: 'Calendario', value: 'Incluido', included: true },
+        { label: 'Importar CSV', value: 'Limitado al plan', included: true },
+        { label: 'Ventas e inventario', value: 'Básico', included: true },
+        { label: 'Automatizaciones', value: 'No disponible', included: false },
+        { label: 'Reportes avanzados', value: 'No disponible', included: false },
+        { label: 'Análisis de conversión', value: 'Básico', included: true },
+        { label: 'Soporte', value: 'Email (48h)', included: true },
+      ]
     },
     {
       id: 'pro',
       name: 'Pro',
       price: 29,
       description: 'Para profesionales y pequeños equipos.',
-      features: ['Hasta 50 clientes', 'Hasta 100 tareas', 'Seguimientos ilimitados', 'Soporte prioritario'],
-      popular: true
+      features: ['Hasta 100 clientes', '10 usuarios', 'Automatizaciones', 'Reportes estándar', 'Soporte prioritario'],
+      popular: true,
+      details: [
+        { label: 'Clientes', value: 'Hasta 100', included: true },
+        { label: 'Usuarios', value: '10', included: true },
+        { label: 'Tareas y seguimientos', value: 'Ilimitados', included: true },
+        { label: 'Pipeline de ventas', value: 'Columnas personalizables', included: true },
+        { label: 'Calendario', value: 'Incluido', included: true },
+        { label: 'Importar CSV', value: 'Ilimitado', included: true },
+        { label: 'Ventas e inventario', value: 'Completo', included: true },
+        { label: 'Automatizaciones', value: 'Todas las plantillas', included: true },
+        { label: 'Reportes avanzados', value: 'Incluido', included: true },
+        { label: 'Análisis de conversión', value: 'Completo por vendedor', included: true },
+        { label: 'Soporte', value: 'Email prioritario (12h)', included: true },
+      ]
     },
     {
       id: 'enterprise',
       name: 'Enterprise',
       price: 99,
       description: 'Para empresas en crecimiento.',
-      features: ['Clientes ilimitados', 'Tareas ilimitadas', 'Seguimientos ilimitados', 'Reportes avanzados', 'Soporte 24/7'],
+      features: ['Clientes ilimitados', 'Usuarios ilimitados', 'Automatizaciones avanzadas', 'Reportes personalizados', 'Soporte 24/7'],
+      details: [
+        { label: 'Clientes', value: 'Ilimitados', included: true },
+        { label: 'Usuarios', value: 'Ilimitados', included: true },
+        { label: 'Tareas y seguimientos', value: 'Ilimitados', included: true },
+        { label: 'Pipeline de ventas', value: 'Totalmente personalizable', included: true },
+        { label: 'Calendario', value: 'Incluido', included: true },
+        { label: 'Importar CSV', value: 'Ilimitado', included: true },
+        { label: 'Ventas e inventario', value: 'Completo + exportación', included: true },
+        { label: 'Automatizaciones', value: 'Avanzadas + personalizadas', included: true },
+        { label: 'Reportes avanzados', value: 'Personalizados + exportación', included: true },
+        { label: 'Análisis de conversión', value: 'Completo + histórico', included: true },
+        { label: 'Soporte', value: 'Dedicado 24/7', included: true },
+      ]
     }
   ];
 
@@ -85,20 +126,23 @@ const PricingPage = () => {
                         ))}
                       </ul>
                     </CardContent>
-                    <CardFooter>
+                    <CardFooter className="flex flex-col gap-2">
                       {currentPlan === plan.id ? (
                         <Button className="w-full" variant="outline" disabled>
                           Plan Actual
                         </Button>
                       ) : (
-                        <Button 
-                          className="w-full" 
+                        <Button
+                          className="w-full"
                           variant={plan.popular ? 'default' : 'outline'}
                           onClick={() => setCheckoutPlan(plan)}
                         >
                           {plan.price === 0 ? 'Contactar Soporte' : 'Mejorar Plan'}
                         </Button>
                       )}
+                      <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={() => setDetailPlan(plan)}>
+                        Ver detalles
+                      </Button>
                     </CardFooter>
                   </Card>
                 ))}
@@ -108,11 +152,32 @@ const PricingPage = () => {
         </div>
       </div>
 
-      <CheckoutModal 
-        open={!!checkoutPlan} 
+      <CheckoutModal
+        open={!!checkoutPlan}
         onOpenChange={(open) => !open && setCheckoutPlan(null)}
         plan={checkoutPlan}
       />
+
+      <Dialog open={!!detailPlan} onOpenChange={(open) => !open && setDetailPlan(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Plan {detailPlan?.name} — Detalles</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1 py-2">
+            {detailPlan?.details.map((item, i) => (
+              <div key={i} className="flex items-center justify-between py-2 border-b last:border-0">
+                <div className="flex items-center gap-2">
+                  {item.included
+                    ? <Check className="h-4 w-4 text-green-500 shrink-0" />
+                    : <X className="h-4 w-4 text-muted-foreground shrink-0" />}
+                  <span className={`text-sm ${!item.included ? 'text-muted-foreground' : ''}`}>{item.label}</span>
+                </div>
+                <span className={`text-sm font-medium ${!item.included ? 'text-muted-foreground' : ''}`}>{item.value}</span>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

@@ -1,6 +1,7 @@
 import express from 'express';
 import prisma from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { scopedWhere } from '../lib/scopeWhere.js';
 import { Resend } from 'resend';
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -16,7 +17,7 @@ const mapEmail = (e) => ({
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const emails = await prisma.emailEnviado.findMany({
-      where: { usuario_id: req.user.id },
+      where: scopedWhere(req),
       include: { Cliente: true },
       orderBy: { fecha_envio: 'desc' }
     });
@@ -32,7 +33,7 @@ router.get('/', authMiddleware, async (req, res) => {
 router.get('/cliente/:clienteId', authMiddleware, async (req, res) => {
   try {
     const emails = await prisma.emailEnviado.findMany({
-      where: { cliente_id: req.params.clienteId },
+      where: { cliente_id: req.params.clienteId, company_id: req.user.company_id },
       orderBy: { fecha_envio: 'desc' }
     });
     res.json(emails.map(mapEmail));
@@ -55,7 +56,7 @@ router.post('/', authMiddleware, async (req, res) => {
             from: process.env.EMAIL_FROM || 'CRM <noreply@resend.dev>',
             to: [cliente.email],
             subject: asunto,
-            html: `<div style="font-family:sans-serif">${(contenido || '').replace(/\n/g, '<br>')}</div>`,
+            html: `<div style="font-family:sans-serif">${(contenido || '').replace(/\n/g, '<br>')}</div>`
           });
           realSent = true;
         }
@@ -67,6 +68,7 @@ router.post('/', authMiddleware, async (req, res) => {
     const email = await prisma.emailEnviado.create({
       data: {
         usuario_id: req.user.id,
+        company_id: req.user.company_id,
         cliente_id: cliente_id || null,
         plantilla_id: plantilla_id || null,
         asunto,

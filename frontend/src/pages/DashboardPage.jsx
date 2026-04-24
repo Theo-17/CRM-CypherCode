@@ -48,8 +48,8 @@ const DashboardPage = () => {
         return f.getMonth() === currentMonth && f.getFullYear() === currentYear;
       }).length;
 
-      const clientesActivos = clientes.filter(c => c.estado === 'Activo').length;
-      const tasaConversion = clientes.length > 0 ? Math.round((clientesActivos / clientes.length) * 100) : 0;
+      const ganados = clientes.filter(c => c.estado_conversion === 'ganado').length;
+      const tasaConversion = clientes.length > 0 ? Math.round((ganados / clientes.length) * 100) : 0;
 
       setMetrics({ totalClientes: clientes.length, tareasPendientes, seguimientosEsteMes, tasaConversion });
       setOverdueTasks(overdue);

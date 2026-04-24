@@ -3,6 +3,7 @@ import { Bell, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '@/lib/apiServerClient';
 import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -25,7 +26,21 @@ const NotificationBell = () => {
     }
   };
 
-  useEffect(() => { fetchNotifications(); }, [currentUser]);
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(async () => {
+      if (!currentUser) return;
+      try {
+        const data = await api.get('/api/notificaciones');
+        setNotifications(prev => {
+          const prevIds = new Set(prev.map(n => n.id));
+          data.filter(n => !prevIds.has(n.id)).forEach(n => toast.info(n.mensaje));
+          return data;
+        });
+      } catch {}
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
 
   const markAsRead = async (id) => {
     try {

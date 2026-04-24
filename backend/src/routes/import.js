@@ -2,6 +2,7 @@ import express from 'express';
 import prisma from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
+import { FEATURE_LIMITS } from './features.js';
 
 const router = express.Router();
 
@@ -24,6 +25,7 @@ function isValidEmail(email) {
 router.post('/import-clients', authMiddleware, async (req, res) => {
   const { csvContent } = req.body;
   const userId = req.user.id;
+  const companyId = req.user.company_id;
 
   if (!csvContent) return res.status(400).json({ error: 'csvContent requerido' });
 
@@ -32,8 +34,18 @@ router.post('/import-clients', authMiddleware, async (req, res) => {
 
   try {
     const rows = parseCSV(csvContent);
+
+    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    const limit = FEATURE_LIMITS[company?.plan_id || 'gratis']?.clientes ?? 5;
+    if (limit !== Infinity) {
+      const existing = await prisma.cliente.count({ where: { company_id: companyId } });
+      if (existing >= limit) {
+        return res.status(403).json({ error: `Límite de ${limit} clientes alcanzado. Actualiza tu plan.` });
+      }
+    }
+
     const existingClientes = await prisma.cliente.findMany({
-      where: { usuario_id: userId },
+      where: { company_id: companyId },
       select: { email: true }
     });
     const existingEmails = new Set(existingClientes.map(c => c.email?.toLowerCase()).filter(Boolean));
@@ -57,6 +69,7 @@ router.post('/import-clients', authMiddleware, async (req, res) => {
         await prisma.cliente.create({
           data: {
             usuario_id: userId,
+            company_id: companyId,
             nombre: row.nombre,
             email: row.email || null,
             telefono: row.telefono || null,

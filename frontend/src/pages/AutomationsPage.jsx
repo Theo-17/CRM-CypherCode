@@ -13,15 +13,41 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Zap, Play, Plus, Trash2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Zap, Plus, Trash2, Clock, Bell, CheckSquare, Users } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+
+const TEMPLATE_META = {
+  cliente_sin_seguimiento_30d: {
+    descripcion: 'Notifica cuando un cliente lleva 30 días sin ningún seguimiento registrado.',
+    icono: Clock,
+    tag: 'Clientes inactivos',
+  },
+  tarea_vencida: {
+    descripcion: 'Notifica cuando una tarea supera su fecha de vencimiento sin completarse.',
+    icono: CheckSquare,
+    tag: 'Tareas',
+  },
+  cliente_nuevo: {
+    descripcion: 'Crea automáticamente una tarea de bienvenida al añadir un nuevo cliente.',
+    icono: Users,
+    tag: 'Clientes nuevos',
+  },
+  cliente_ganado: {
+    descripcion: 'Notifica al equipo cuando un cliente pasa a estado "Ganado".',
+    icono: Bell,
+    tag: 'Conversión',
+  },
+};
 
 const AutomationsPage = () => {
   const { getCurrentUserRole } = useAuth();
   const navigate = useNavigate();
   const [rules, setRules] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, rule: null });
-  const [form, setForm] = useState({ nombre: '', trigger: '', accion: '' });
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -31,8 +57,12 @@ const AutomationsPage = () => {
 
   const fetchRules = async () => {
     try {
-      const data = await api.get('/api/automatizaciones');
+      const [data, tmpl] = await Promise.all([
+        api.get('/api/automatizaciones'),
+        api.get('/api/automatizaciones/plantillas')
+      ]);
       setRules(data);
+      setTemplates(tmpl);
     } catch {
       toast.error('Error al cargar automatizaciones');
     }
@@ -49,15 +79,16 @@ const AutomationsPage = () => {
 
   const handleCreate = async (e) => {
     e.preventDefault();
+    if (!selectedTemplateId) return toast.error('Selecciona una plantilla');
     setSubmitting(true);
     try {
-      const rule = await api.post('/api/automatizaciones', form);
-      setRules(prev => [rule, ...prev]);
+      await api.post('/api/automatizaciones', { templateId: selectedTemplateId });
       setModalOpen(false);
-      setForm({ nombre: '', trigger: '', accion: '' });
+      setSelectedTemplateId('');
       toast.success('Automatización creada');
-    } catch {
-      toast.error('Error al crear automatización');
+      fetchRules();
+    } catch (error) {
+      toast.error(error.message || 'Error al crear automatización');
     } finally {
       setSubmitting(false);
     }
@@ -74,15 +105,6 @@ const AutomationsPage = () => {
     }
   };
 
-  const executeAutomations = async () => {
-    try {
-      const data = await api.post('/api/automatizaciones/ejecutar', {});
-      toast.success(data.message);
-    } catch {
-      toast.error('Error al ejecutar automatizaciones');
-    }
-  };
-
   return (
     <>
       <Helmet><title>Automatizaciones - CRM Pro</title></Helmet>
@@ -96,47 +118,54 @@ const AutomationsPage = () => {
                 <h1 className="text-3xl font-bold mb-2">Automatizaciones</h1>
                 <p className="text-muted-foreground">Configura reglas automáticas para tu CRM</p>
               </div>
-              <div className="flex gap-3">
-                <Button variant="secondary" onClick={executeAutomations}>
-                  <Play className="h-4 w-4 mr-2" /> Ejecutar Ahora
-                </Button>
-                <Button onClick={() => setModalOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" /> Nueva Regla
-                </Button>
-              </div>
+              <Button onClick={() => setModalOpen(true)} disabled={templates.length === 0}>
+                <Plus className="h-4 w-4 mr-2" /> Nueva Regla
+              </Button>
             </div>
 
             <div className="grid gap-4">
-              {rules.map(rule => (
-                <Card key={rule.id}>
-                  <CardContent className="p-6 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="p-3 rounded-full bg-primary/10">
-                        <Zap className="h-5 w-5 text-primary" />
+              {rules.map(rule => {
+                const meta = TEMPLATE_META[rule.condicion] || {};
+                const Icon = meta.icono || Zap;
+                return (
+                  <Card key={rule.id} className={!rule.activa ? 'opacity-60' : ''}>
+                    <CardContent className="p-6 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-4 flex-1 min-w-0">
+                        <div className={`p-3 rounded-full shrink-0 ${rule.activa ? 'bg-primary/10' : 'bg-muted'}`}>
+                          <Icon className={`h-5 w-5 ${rule.activa ? 'text-primary' : 'text-muted-foreground'}`} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <h3 className="font-semibold">{rule.nombre}</h3>
+                            {meta.tag && <Badge variant="outline" className="text-xs">{meta.tag}</Badge>}
+                            {rule.activa
+                              ? <Badge variant="secondary" className="text-xs text-green-600 bg-green-50 dark:bg-green-950/30 border-green-200">Activa</Badge>
+                              : <Badge variant="outline" className="text-xs text-muted-foreground">Pausada</Badge>
+                            }
+                          </div>
+                          <p className="text-sm text-muted-foreground">{meta.descripcion || 'Automatización personalizada'}</p>
+                          <p className="text-xs text-muted-foreground/60 mt-1">Se ejecuta automáticamente en segundo plano</p>
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="font-semibold text-lg">{rule.nombre}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Si: <span className="font-medium">{rule.condicion}</span> → Entonces: <span className="font-medium">{rule.accion}</span>
-                        </p>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <Switch checked={rule.activa ?? false} onCheckedChange={() => toggleRule(rule.id, rule.activa)} />
+                        <Button variant="ghost" size="icon" onClick={() => setDeleteDialog({ open: true, rule })}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <Switch checked={rule.activa ?? false} onCheckedChange={() => toggleRule(rule.id, rule.activa)} />
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteDialog({ open: true, rule })}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
               {rules.length === 0 && (
                 <div className="text-center py-16 text-muted-foreground">
                   <Zap className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                  <p>No hay reglas configuradas. Crea la primera automatización.</p>
+                  <p className="mb-1">No hay automatizaciones activas.</p>
+                  <p className="text-sm">Activa una plantilla para que el CRM trabaje solo.</p>
                 </div>
               )}
             </div>
+            <p className="text-xs text-muted-foreground mt-6">Las automatizaciones activas se comprueban automáticamente cada minuto en el servidor.</p>
           </main>
         </div>
       </div>
@@ -144,20 +173,27 @@ const AutomationsPage = () => {
       <FormModal open={modalOpen} onOpenChange={setModalOpen} title="Nueva Automatización">
         <form onSubmit={handleCreate} className="space-y-4">
           <div className="space-y-2">
-            <Label>Nombre</Label>
-            <Input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Notificar clientes inactivos" required />
+            <Label>Plantilla</Label>
+            <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+              <SelectTrigger><SelectValue placeholder="Seleccionar plantilla..." /></SelectTrigger>
+              <SelectContent>
+                {templates.map(t => (
+                  <SelectItem key={t.id} value={t.id}>
+                    <div>
+                      <p className="font-medium">{t.nombre}</p>
+                      <p className="text-xs text-muted-foreground">{t.descripcion}</p>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="space-y-2">
-            <Label>Condición (Si...)</Label>
-            <Input value={form.trigger} onChange={e => setForm({ ...form, trigger: e.target.value })} placeholder="Ej: cliente_sin_seguimiento_30_dias" required />
-          </div>
-          <div className="space-y-2">
-            <Label>Acción (Entonces...)</Label>
-            <Input value={form.accion} onChange={e => setForm({ ...form, accion: e.target.value })} placeholder="Ej: crear_tarea_seguimiento" required />
-          </div>
+          {templates.length === 0 && (
+            <p className="text-sm text-muted-foreground">Todas las plantillas disponibles ya están activas.</p>
+          )}
           <div className="flex justify-end gap-3 pt-4">
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button type="submit" disabled={submitting}>{submitting ? 'Creando...' : 'Crear'}</Button>
+            <Button type="submit" disabled={submitting || !selectedTemplateId}>{submitting ? 'Creando...' : 'Activar'}</Button>
           </div>
         </form>
       </FormModal>

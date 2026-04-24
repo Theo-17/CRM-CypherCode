@@ -1,6 +1,7 @@
 import express from 'express';
 import prisma from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { scopedWhere } from '../lib/scopeWhere.js';
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -14,7 +15,7 @@ const mapProducto = (p) => ({
 router.get('/', async (req, res) => {
   try {
     const productos = await prisma.producto.findMany({
-      where: { usuario_id: req.user.id },
+      where: scopedWhere(req),
       orderBy: { created: 'desc' }
     });
     res.json(productos.map(mapProducto));
@@ -26,6 +27,9 @@ router.get('/', async (req, res) => {
 router.get('/movimientos', async (req, res) => {
   try {
     const movimientos = await prisma.inventarioMovimiento.findMany({
+      where: {
+        Producto: { company_id: req.user.company_id }
+      },
       include: { Producto: true },
       orderBy: { fecha: 'desc' },
       take: 50
@@ -47,6 +51,7 @@ router.post('/', async (req, res) => {
     const producto = await prisma.producto.create({
       data: {
         usuario_id: req.user.id,
+        company_id: req.user.company_id,
         nombre, descripcion,
         precio: parseFloat(precio) || 0,
         costo: parseFloat(costo) || 0,
@@ -76,7 +81,7 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const existing = await prisma.producto.findFirst({
-      where: { id: req.params.id, usuario_id: req.user.id }
+      where: { id: req.params.id, company_id: req.user.company_id }
     });
     if (!existing) return res.status(404).json({ message: 'Producto no encontrado' });
 
@@ -116,7 +121,7 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const existing = await prisma.producto.findFirst({
-      where: { id: req.params.id, usuario_id: req.user.id }
+      where: { id: req.params.id, company_id: req.user.company_id }
     });
     if (!existing) return res.status(404).json({ message: 'Producto no encontrado' });
 

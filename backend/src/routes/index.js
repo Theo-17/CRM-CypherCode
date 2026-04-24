@@ -19,6 +19,7 @@ import reportsRouter from './reports.js';
 import automatizacionesRouter from './automatizaciones.js';
 import searchRouter from './search.js';
 import integracionesRouter from './integraciones.js';
+import categoriasRouter from './categorias.js';
 
 const router = Router();
 
@@ -39,6 +40,7 @@ export default () => {
   router.use('/api/automatizaciones', automatizacionesRouter);
   router.use('/api/search', searchRouter);
   router.use('/api/integraciones', integracionesRouter);
+  router.use('/api/categorias', categoriasRouter);
   router.use('/stripe', stripeRouter);
   router.use('/features', featuresRouter);
   router.use('/slack', slackRouter);

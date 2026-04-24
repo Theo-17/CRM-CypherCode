@@ -1,6 +1,7 @@
 import express from 'express';
 import prisma from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { scopedWhere } from '../lib/scopeWhere.js';
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -8,13 +9,18 @@ router.use(authMiddleware);
 const mapVenta = (v) => ({
   ...v,
   total: Number(v.monto_total),
-  monto_total: Number(v.monto_total)
+  monto_total: Number(v.monto_total),
+  monto_sin_iva: Number(v.monto_sin_iva || 0),
+  iva_monto: Number(v.iva_monto || 0)
 });
 
 router.get('/', async (req, res) => {
   try {
+    const where = { ...scopedWhere(req) };
+    if (req.query.cliente_id) where.cliente_id = req.query.cliente_id;
+
     const ventas = await prisma.venta.findMany({
-      where: { usuario_id: req.user.id },
+      where,
       include: { Cliente: true },
       orderBy: { fecha: 'desc' }
     });
@@ -41,13 +47,19 @@ router.post('/', async (req, res) => {
       }
     }
 
-    const total = items.reduce((sum, i) => sum + (i.cantidad * i.precio_unitario), 0);
+    const { aplicar_iva = true } = req.body;
+    const subtotalSinIva = items.reduce((sum, i) => sum + (i.cantidad * i.precio_unitario), 0);
+    const ivaMonto = aplicar_iva ? parseFloat((subtotalSinIva * 0.15).toFixed(2)) : 0;
+    const montoTotal = parseFloat((subtotalSinIva + ivaMonto).toFixed(2));
 
     const venta = await prisma.venta.create({
       data: {
         usuario_id: req.user.id,
+        company_id: req.user.company_id,
         cliente_id,
-        monto_total: total,
+        monto_sin_iva: subtotalSinIva,
+        iva_monto: ivaMonto,
+        monto_total: montoTotal,
         estado: 'completada',
         fecha: new Date()
       }
@@ -80,6 +92,11 @@ router.post('/', async (req, res) => {
         }
       });
     }
+
+    await prisma.cliente.update({
+      where: { id: cliente_id },
+      data: { valor_venta: { increment: montoTotal } }
+    }).catch(() => {});
 
     const ventaConCliente = await prisma.venta.findUnique({
       where: { id: venta.id },
@@ -116,7 +133,7 @@ router.put('/:id/estado', async (req, res) => {
   try {
     const { estado } = req.body;
     const updated = await prisma.venta.updateMany({
-      where: { id: req.params.id, usuario_id: req.user.id },
+      where: { id: req.params.id, company_id: req.user.company_id },
       data: { estado }
     });
     if (updated.count === 0) return res.status(404).json({ message: 'Venta no encontrada' });

@@ -8,15 +8,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { toast } from 'sonner';
 import { Helmet } from 'react-helmet';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import { Mail } from 'lucide-react';
 
 const SignupPage = () => {
   const [formData, setFormData] = useState({
     name: '',
+    companyName: '',
     email: '',
     password: '',
     confirmPassword: ''
   });
   const [loading, setLoading] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
   const { signup } = useAuth();
   const navigate = useNavigate();
 
@@ -26,8 +29,8 @@ const SignupPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword) {
+
+    if (!formData.name || !formData.companyName || !formData.email || !formData.password || !formData.confirmPassword) {
       toast.error('Por favor completa todos los campos');
       return;
     }
@@ -44,11 +47,15 @@ const SignupPage = () => {
 
     setLoading(true);
     try {
-      await signup(formData.name, formData.email, formData.password);
-      toast.success('Cuenta creada exitosamente');
-      navigate('/dashboard');
+      const result = await signup(formData.name, formData.email, formData.password, formData.companyName);
+      if (result?.needsVerification) {
+        setVerificationSent(true);
+      } else {
+        toast.success('Cuenta creada exitosamente');
+        navigate('/dashboard');
+      }
     } catch (error) {
-      if (error.message.includes('email')) {
+      if (error.message.includes('email') || error.message.includes('existe')) {
         toast.error('Este email ya está registrado');
       } else {
         toast.error('Error al crear la cuenta. Por favor intenta de nuevo.');
@@ -64,8 +71,27 @@ const SignupPage = () => {
         <title>Crear Cuenta - CRM Pro</title>
         <meta name="description" content="Crea tu cuenta en CRM Pro" />
       </Helmet>
-      
+
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4">
+        {verificationSent ? (
+          <Card className="w-full max-w-md text-center">
+            <CardContent className="pt-10 pb-8 px-8">
+              <div className="flex justify-center mb-4">
+                <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Mail className="h-8 w-8 text-primary" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold mb-2">Verifica tu correo</h2>
+              <p className="text-muted-foreground mb-6">
+                Enviamos un link de verificación a <strong>{formData.email}</strong>.<br />
+                Revisa tu bandeja de entrada (y la carpeta de spam) y haz clic en el link para activar tu cuenta.
+              </p>
+              <Link to="/login">
+                <Button variant="outline" className="w-full">Ir al inicio de sesión</Button>
+              </Link>
+            </CardContent>
+          </Card>
+        ) : (
         <Card className="w-full max-w-md">
           <CardHeader className="space-y-1">
             <div className="flex justify-center mb-4">
@@ -95,6 +121,20 @@ const SignupPage = () => {
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="companyName">Nombre de tu empresa</Label>
+                <Input
+                  id="companyName"
+                  name="companyName"
+                  type="text"
+                  placeholder="Mi Empresa S.A."
+                  value={formData.companyName}
+                  onChange={handleChange}
+                  disabled={loading}
+                  className="text-foreground"
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
@@ -107,7 +147,7 @@ const SignupPage = () => {
                   className="text-foreground"
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="password">Contraseña</Label>
                 <Input
@@ -156,6 +196,7 @@ const SignupPage = () => {
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
     </>
   );

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import api from '@/lib/apiServerClient';
 import Header from '@/components/Header';
@@ -21,6 +22,7 @@ import { es } from 'date-fns/locale';
 
 const SeguimientosPage = () => {
   const { currentUser } = useAuth();
+  const location = useLocation();
   const [seguimientos, setSeguimientos] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -34,6 +36,13 @@ const SeguimientosPage = () => {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
+
+  useEffect(() => {
+    if (!loading && location.state?.editId) {
+      const seg = seguimientos.find(s => s.id === location.state.editId);
+      if (seg) { handleOpenModal(seg); window.history.replaceState({}, ''); }
+    }
+  }, [loading, seguimientos]);
 
   const fetchData = async () => {
     try {

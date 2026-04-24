@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Plus, Trash2, ShoppingCart, Eye } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -26,6 +27,7 @@ const VentasPage = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [selectedCliente, setSelectedCliente] = useState('');
   const [saleItems, setSaleItems] = useState([]);
+  const [aplicarIva, setAplicarIva] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedSale, setSelectedSale] = useState(null);
@@ -65,7 +67,9 @@ const VentasPage = () => {
     setSaleItems(items);
   };
 
-  const calculateTotal = () => saleItems.reduce((s, i) => s + i.subtotal, 0);
+  const calculateSubtotal = () => saleItems.reduce((s, i) => s + i.subtotal, 0);
+  const calculateIva = () => aplicarIva ? parseFloat((calculateSubtotal() * 0.15).toFixed(2)) : 0;
+  const calculateTotal = () => parseFloat((calculateSubtotal() + calculateIva()).toFixed(2));
 
   const handleSubmitSale = async (e) => {
     e.preventDefault();
@@ -76,6 +80,7 @@ const VentasPage = () => {
     try {
       await api.post('/api/ventas', {
         cliente_id: selectedCliente,
+        aplicar_iva: aplicarIva,
         items: saleItems.map(i => ({ producto_id: i.producto_id, cantidad: i.cantidad, precio_unitario: i.precio_unitario }))
       });
       toast.success('Venta registrada exitosamente');
@@ -169,7 +174,23 @@ const VentasPage = () => {
                       )}
                     </div>
                     <div className="flex justify-between items-center pt-4 border-t">
-                      <div className="text-2xl font-bold">Total: ${calculateTotal().toFixed(2)}</div>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className="text-muted-foreground">Aplicar IVA (15%)</span>
+                          <Switch checked={aplicarIva} onCheckedChange={setAplicarIva} />
+                        </div>
+                        <div className="flex justify-between gap-8 text-muted-foreground">
+                          <span>Subtotal</span><span>${calculateSubtotal().toFixed(2)}</span>
+                        </div>
+                        {aplicarIva && (
+                          <div className="flex justify-between gap-8 text-muted-foreground">
+                            <span>IVA (15%)</span><span>${calculateIva().toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between gap-8 font-bold text-lg">
+                          <span>Total</span><span>${calculateTotal().toFixed(2)}</span>
+                        </div>
+                      </div>
                       <div className="flex gap-3">
                         <Button type="button" variant="outline" onClick={() => { setIsCreating(false); setSaleItems([]); setSelectedCliente(''); }}>Cancelar</Button>
                         <Button type="submit" disabled={submitting || saleItems.length === 0}>{submitting ? 'Procesando...' : 'Completar Venta'}</Button>
@@ -237,9 +258,12 @@ const VentasPage = () => {
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-between items-center mt-4 pt-4 border-t font-bold text-lg">
-                  <span>Total</span>
-                  <span>${Number(selectedSale.monto_total || selectedSale.total || 0).toFixed(2)}</span>
+                <div className="mt-4 pt-4 border-t space-y-1 text-sm">
+                  <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>${Number(selectedSale.monto_sin_iva || 0).toFixed(2)}</span></div>
+                  {Number(selectedSale.iva_monto || 0) > 0 && (
+                    <div className="flex justify-between text-muted-foreground"><span>IVA (15%)</span><span>${Number(selectedSale.iva_monto || 0).toFixed(2)}</span></div>
+                  )}
+                  <div className="flex justify-between font-bold text-lg"><span>Total</span><span>${Number(selectedSale.monto_total || selectedSale.total || 0).toFixed(2)}</span></div>
                 </div>
               </div>
               <div className="flex items-center gap-3 pt-4 border-t">

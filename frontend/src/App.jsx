@@ -28,6 +28,8 @@ import IntegrationsPage from './pages/IntegrationsPage';
 import InventarioPage from './pages/InventarioPage';
 import VentasPage from './pages/VentasPage';
 import PipelinePage from './pages/PipelinePage';
+import SetupPasswordPage from './pages/SetupPasswordPage';
+import VerifyEmailPage from './pages/VerifyEmailPage';
 
 function App() {
   return (
@@ -38,6 +40,8 @@ function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/setup-password" element={<SetupPasswordPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
           
           <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
           <Route path="/clientes" element={<ProtectedRoute><ClientesPage /></ProtectedRoute>} />
@@ -61,7 +65,7 @@ function App() {
           <Route path="/integrations" element={<ProtectedRoute><IntegrationsPage /></ProtectedRoute>} />
           <Route path="/pipeline" element={<ProtectedRoute><PipelinePage /></ProtectedRoute>} />
         </Routes>
-        <Toaster />
+        <Toaster closeButton richColors />
       </Router>
     </AuthProvider>
   );

@@ -14,15 +14,22 @@ const ConversionAnalysisPage = () => {
   const { currentUser, getCurrentUserRole } = useAuth();
   const [clientes, setClientes] = useState([]);
   const [vendedores, setVendedores] = useState([]);
+  const [ventaMap, setVentaMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [vendedorFilter, setVendedorFilter] = useState('all');
 
   useEffect(() => {
     const isAdmin = getCurrentUserRole() === 'admin';
-    const requests = [api.get('/api/clientes')];
+    const requests = [api.get('/api/clientes'), api.get('/api/ventas')];
     if (isAdmin) requests.push(api.get('/api/usuarios'));
     Promise.all(requests)
-      .then(([clientesData, usersData]) => {
+      .then(results => {
+        const [clientesData, ventasData, usersData] = results;
+        const map = {};
+        (ventasData || []).forEach(v => {
+          if (v.cliente_id) map[v.cliente_id] = (map[v.cliente_id] || 0) + Number(v.monto_total || 0);
+        });
+        setVentaMap(map);
         setClientes(clientesData);
         if (usersData) setVendedores(usersData);
       })
@@ -41,8 +48,9 @@ const ConversionAnalysisPage = () => {
 
   const total = filteredClientes.length;
   const conversionRate = total > 0 ? ((ganados.length / total) * 100).toFixed(1) : 0;
+  const getValor = (c) => ventaMap[c.id] || Number(c.valor_venta || 0);
   const avgDealValue = ganados.length > 0
-    ? (ganados.reduce((s, c) => s + Number(c.valor_venta || 0), 0) / ganados.length).toFixed(2)
+    ? (ganados.reduce((s, c) => s + getValor(c), 0) / ganados.length).toFixed(2)
     : 0;
   const avgCloseTime = ganados.length > 0
     ? (ganados.reduce((s, c) => s + differenceInDays(new Date(c.updated), new Date(c.created)), 0) / ganados.length).toFixed(0)
@@ -137,7 +145,7 @@ const ConversionAnalysisPage = () => {
                                 </span>
                               </td>
                               <td className="p-3 text-right text-muted-foreground">
-                                {c.estado_conversion === 'ganado' ? `$${Number(c.valor_venta || 0).toLocaleString()}` : c.motivo_perdida || '-'}
+                                {c.estado_conversion === 'ganado' ? `$${getValor(c).toLocaleString()}` : c.motivo_perdida || '-'}
                               </td>
                             </tr>
                           ))}

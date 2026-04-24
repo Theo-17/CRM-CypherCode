@@ -50,19 +50,22 @@ const SendEmailModal = ({ open, onOpenChange, cliente: clienteProp }) => {
   const handleSend = async (e) => {
     e.preventDefault();
     if (!clienteId) { toast.error('Selecciona un cliente'); return; }
+    if (!clienteEmail) { toast.error('El cliente no tiene email registrado'); return; }
     if (!formData.asunto || !formData.contenido) { toast.error('Asunto y contenido son requeridos'); return; }
     setLoading(true);
     try {
-      const result = await api.post('/api/emails', {
+      await api.post('/api/emails', {
         cliente_id: clienteId,
         plantilla_id: formData.templateId !== 'custom' ? formData.templateId : null,
         asunto: formData.asunto,
         contenido: formData.contenido,
       });
-      toast.success(result.realSent ? `Email enviado a ${clienteEmail}` : 'Email registrado correctamente');
+      const mailtoUrl = `mailto:${encodeURIComponent(clienteEmail)}?subject=${encodeURIComponent(formData.asunto)}&body=${encodeURIComponent(formData.contenido)}`;
+      window.open(mailtoUrl, '_blank');
+      toast.success('Abriendo cliente de correo...');
       onOpenChange(false);
     } catch {
-      toast.error('No se pudo enviar el email');
+      toast.error('No se pudo registrar el email');
     } finally {
       setLoading(false);
     }
@@ -115,7 +118,7 @@ const SendEmailModal = ({ open, onOpenChange, cliente: clienteProp }) => {
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>Cancelar</Button>
             <Button type="submit" disabled={loading || (!!clienteId && !clienteEmail)}>
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-              Enviar
+              Abrir en correo
             </Button>
           </div>
         </form>

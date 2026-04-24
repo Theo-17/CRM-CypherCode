@@ -1,19 +1,27 @@
 import express from 'express';
 import prisma from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { scopedWhere } from '../lib/scopeWhere.js';
 
 const router = express.Router();
 router.use(authMiddleware);
 
-const logActivity = (userId, accion, descripcion, entidadId) =>
+const logActivity = (req, accion, descripcion, entidadId) =>
   prisma.actividad.create({
-    data: { usuario_id: userId, tipo_entidad: 'tarea', entidad_id: entidadId, accion, descripcion }
+    data: {
+      usuario_id: req.user.id,
+      company_id: req.user.company_id,
+      tipo_entidad: 'tarea',
+      entidad_id: entidadId,
+      accion,
+      descripcion
+    }
   }).catch(() => {});
 
 router.get('/', async (req, res) => {
   try {
     const tareas = await prisma.tarea.findMany({
-      where: { usuario_id: req.user.id },
+      where: scopedWhere(req),
       orderBy: { created: 'desc' }
     });
     res.json(tareas);
@@ -25,7 +33,7 @@ router.get('/', async (req, res) => {
 router.get('/cliente/:clienteId', async (req, res) => {
   try {
     const tareas = await prisma.tarea.findMany({
-      where: { cliente_id: req.params.clienteId },
+      where: { cliente_id: req.params.clienteId, company_id: req.user.company_id },
       orderBy: { created: 'desc' }
     });
     res.json(tareas);
@@ -42,6 +50,7 @@ router.post('/', async (req, res) => {
     const tarea = await prisma.tarea.create({
       data: {
         usuario_id: req.user.id,
+        company_id: req.user.company_id,
         cliente_id: cliente_id || null,
         titulo, descripcion,
         estado: estado || 'Pendiente',
@@ -67,7 +76,7 @@ router.post('/', async (req, res) => {
       }
     }
 
-    logActivity(req.user.id, 'crear', `Tarea "${titulo}" creada`, tarea.id);
+    logActivity(req, 'crear', `Tarea "${titulo}" creada`, tarea.id);
     res.status(201).json(tarea);
   } catch (error) {
     res.status(500).json({ message: 'Error al crear tarea' });
@@ -77,7 +86,7 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const existing = await prisma.tarea.findFirst({
-      where: { id: req.params.id, usuario_id: req.user.id }
+      where: { id: req.params.id, company_id: req.user.company_id }
     });
     if (!existing) return res.status(404).json({ message: 'Tarea no encontrada' });
 
@@ -92,7 +101,7 @@ router.put('/:id', async (req, res) => {
       }
     });
 
-    logActivity(req.user.id, 'actualizar', `Tarea "${tarea.titulo}" actualizada`, tarea.id);
+    logActivity(req, 'actualizar', `Tarea "${tarea.titulo}" actualizada`, tarea.id);
     res.json(tarea);
   } catch (error) {
     res.status(500).json({ message: 'Error al actualizar tarea' });
@@ -103,7 +112,7 @@ router.put('/:id/estado', async (req, res) => {
   try {
     const { estado } = req.body;
     const tarea = await prisma.tarea.updateMany({
-      where: { id: req.params.id, usuario_id: req.user.id },
+      where: { id: req.params.id, company_id: req.user.company_id },
       data: { estado }
     });
     if (tarea.count === 0) return res.status(404).json({ message: 'Tarea no encontrada' });
@@ -116,13 +125,13 @@ router.put('/:id/estado', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const existing = await prisma.tarea.findFirst({
-      where: { id: req.params.id, usuario_id: req.user.id }
+      where: { id: req.params.id, company_id: req.user.company_id }
     });
     if (!existing) return res.status(404).json({ message: 'Tarea no encontrada' });
 
     await prisma.recordatorio.deleteMany({ where: { tarea_id: req.params.id } });
     await prisma.tarea.delete({ where: { id: req.params.id } });
-    logActivity(req.user.id, 'eliminar', `Tarea "${existing.titulo}" eliminada`, req.params.id);
+    logActivity(req, 'eliminar', `Tarea "${existing.titulo}" eliminada`, req.params.id);
     res.json({ message: 'Tarea eliminada' });
   } catch (error) {
     res.status(500).json({ message: 'Error al eliminar tarea' });
