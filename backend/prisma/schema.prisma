@@ -93,6 +93,7 @@ model User {
   email_verified              Boolean?  @default(true)
   email_verification_token    String?   @unique @db.VarChar(255)
   email_verification_expires  DateTime? @db.Timestamptz(6)
+  google_id                   String?   @unique @db.VarChar(255)
   created            DateTime?        @default(now()) @db.Timestamptz(6)
   updated            DateTime?        @default(now()) @updatedAt @db.Timestamptz(6)
   Actividad          Actividad[]
@@ -160,9 +161,11 @@ model Integracion {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   usuario_id   String?   @db.Uuid
   company_id   String?   @db.Uuid
-  proveedor    String    @db.VarChar(100)
-  token_acceso String?
-  activa       Boolean?  @default(false)
+  proveedor      String    @db.VarChar(100)
+  token_acceso   String?
+  refresh_token  String?   @db.VarChar(1000)
+  token_expiry   DateTime? @db.Timestamptz(6)
+  activa         Boolean?  @default(false)
   created      DateTime? @default(now()) @db.Timestamptz(6)
   updated      DateTime? @default(now()) @db.Timestamptz(6)
   Company      Company?  @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -276,7 +279,8 @@ model Tarea {
   descripcion       String?
   estado            String?        @default("Pendiente") @db.VarChar(50)
   prioridad         String?        @default("Media") @db.VarChar(50)
-  fecha_vencimiento DateTime?      @db.Timestamptz(6)
+  fecha_vencimiento            DateTime? @db.Timestamptz(6)
+  google_calendar_event_id     String?   @db.VarChar(255)
   created           DateTime?      @default(now()) @db.Timestamptz(6)
   updated           DateTime?      @default(now()) @db.Timestamptz(6)
   Recordatorio      Recordatorio[]

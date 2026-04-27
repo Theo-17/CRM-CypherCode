@@ -36,6 +36,32 @@ export const AuthProvider = ({ children }) => {
     initAuth();
   }, []);
 
+  // Escucha el evento de sesión revocada (admin eliminó al usuario)
+  useEffect(() => {
+    const handleRevoked = () => setCurrentUser(null);
+    window.addEventListener('auth:session-revoked', handleRevoked);
+    return () => window.removeEventListener('auth:session-revoked', handleRevoked);
+  }, []);
+
+  // Verifica la sesión cada 60 segundos mientras el usuario está logueado
+  useEffect(() => {
+    if (!currentUser) return;
+    const interval = setInterval(async () => {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+      try {
+        const response = await fetch(`${API_URL}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (response.status === 401) {
+          localStorage.removeItem('auth_token');
+          setCurrentUser(null);
+        }
+      } catch {}
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
   const login = async (email, password) => {
     const response = await fetch(`${API_URL}/api/auth/login`, {
       method: 'POST',
@@ -85,6 +111,17 @@ export const AuthProvider = ({ children }) => {
     return data.user;
   };
 
+  const loginWithToken = async (token) => {
+    const response = await fetch(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Sesión inválida');
+    localStorage.setItem('auth_token', token);
+    setCurrentUser(data.user);
+    return data.user;
+  };
+
   const logout = () => {
     localStorage.removeItem('auth_token');
     setCurrentUser(null);
@@ -110,7 +147,7 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     currentUser,
-    login, signup, logout,
+    login, signup, logout, loginWithToken,
     checkEmail, activateAccount,
     isAuthenticated: !!currentUser,
     getCurrentUserPlan,

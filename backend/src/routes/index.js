@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import healthCheck from './health-check.js';
-import stripeRouter from './stripe.js';
 import featuresRouter from './features.js';
 import slackRouter from './slack.js';
 import authRouter from './auth.js';
@@ -20,6 +19,8 @@ import automatizacionesRouter from './automatizaciones.js';
 import searchRouter from './search.js';
 import integracionesRouter from './integraciones.js';
 import categoriasRouter from './categorias.js';
+import googleCalendarRouter from './google-calendar.js';
+import placetopayRouter from './placetopay.js';
 
 const router = Router();
 
@@ -41,7 +42,8 @@ export default () => {
   router.use('/api/search', searchRouter);
   router.use('/api/integraciones', integracionesRouter);
   router.use('/api/categorias', categoriasRouter);
-  router.use('/stripe', stripeRouter);
+  router.use('/api/google-calendar', googleCalendarRouter);
+  router.use('/api/payments', placetopayRouter);
   router.use('/features', featuresRouter);
   router.use('/slack', slackRouter);
   router.use('/import', importRouter);

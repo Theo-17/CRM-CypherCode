@@ -2,6 +2,7 @@ import express from 'express';
 import prisma from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { scopedWhere } from '../lib/scopeWhere.js';
+import { syncTaskToCalendar, deleteTaskFromCalendar } from '../lib/googleCalendarSync.js';
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -76,6 +77,16 @@ router.post('/', async (req, res) => {
       }
     }
 
+    // Auto-sync con Google Calendar (fire and forget)
+    syncTaskToCalendar(req.user.id, tarea).then(eventId => {
+      if (eventId && !tarea.google_calendar_event_id) {
+        prisma.tarea.update({
+          where: { id: tarea.id },
+          data: { google_calendar_event_id: eventId }
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+
     logActivity(req, 'crear', `Tarea "${titulo}" creada`, tarea.id);
     res.status(201).json(tarea);
   } catch (error) {
@@ -100,6 +111,16 @@ router.put('/:id', async (req, res) => {
         fecha_vencimiento: fecha_vencimiento ? new Date(fecha_vencimiento) : null
       }
     });
+
+    // Auto-sync con Google Calendar (fire and forget)
+    syncTaskToCalendar(req.user.id, { ...tarea, google_calendar_event_id: existing.google_calendar_event_id }).then(eventId => {
+      if (eventId && !existing.google_calendar_event_id) {
+        prisma.tarea.update({
+          where: { id: tarea.id },
+          data: { google_calendar_event_id: eventId }
+        }).catch(() => {});
+      }
+    }).catch(() => {});
 
     logActivity(req, 'actualizar', `Tarea "${tarea.titulo}" actualizada`, tarea.id);
     res.json(tarea);
@@ -128,6 +149,9 @@ router.delete('/:id', async (req, res) => {
       where: { id: req.params.id, company_id: req.user.company_id }
     });
     if (!existing) return res.status(404).json({ message: 'Tarea no encontrada' });
+
+    // Auto-eliminar de Google Calendar (fire and forget)
+    deleteTaskFromCalendar(req.user.id, existing.google_calendar_event_id).catch(() => {});
 
     await prisma.recordatorio.deleteMany({ where: { tarea_id: req.params.id } });
     await prisma.tarea.delete({ where: { id: req.params.id } });

@@ -9,6 +9,14 @@ const getHeaders = () => {
 };
 
 const handleResponse = async (response) => {
+  if (response.status === 401) {
+    const err = await response.json().catch(() => ({}));
+    if (err.sessionRevoked) {
+      localStorage.removeItem('auth_token');
+      window.dispatchEvent(new CustomEvent('auth:session-revoked'));
+    }
+    throw new Error(err.message || 'No autorizado');
+  }
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.message || `Error ${response.status}`);

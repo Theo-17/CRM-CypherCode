@@ -9,6 +9,9 @@ import { authMiddleware } from '../middleware/auth.js';
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const EMAIL_FROM = process.env.EMAIL_FROM || 'CRM <noreply@resend.dev>';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-me';
@@ -223,6 +226,101 @@ router.get('/verify-email/:token', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Error al verificar el email.' });
+  }
+});
+
+// GET /api/auth/google — redirige al flujo OAuth de Google
+router.get('/google', (req, res) => {
+  if (!GOOGLE_CLIENT_ID) {
+    return res.redirect(`${FRONTEND_URL}/login?error=google_not_configured`);
+  }
+  const redirectUri = `${BACKEND_URL}/api/auth/google/callback`;
+  const authUrl =
+    `https://accounts.google.com/o/oauth2/v2/auth` +
+    `?client_id=${encodeURIComponent(GOOGLE_CLIENT_ID)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&response_type=code` +
+    `&scope=${encodeURIComponent('openid email profile')}` +
+    `&access_type=offline`;
+  res.redirect(authUrl);
+});
+
+// GET /api/auth/google/callback — Google redirige aquí después del login
+router.get('/google/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.redirect(`${FRONTEND_URL}/login?error=google_auth_failed`);
+  }
+  try {
+    const redirectUri = `${BACKEND_URL}/api/auth/google/callback`;
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+      }),
+    });
+    const tokens = await tokenRes.json();
+    if (!tokenRes.ok) throw new Error(tokens.error_description || 'Token exchange failed');
+
+    const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    const googleUser = await userInfoRes.json();
+
+    let user = await prisma.user.findFirst({
+      where: { google_id: googleUser.id },
+      include: { Company: true }
+    });
+
+    if (!user) {
+      user = await prisma.user.findFirst({
+        where: { email: googleUser.email },
+        include: { Company: true }
+      });
+      if (user) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { google_id: googleUser.id, email_verified: true },
+          include: { Company: true }
+        });
+      } else {
+        const result = await prisma.$transaction(async (tx) => {
+          const company = await tx.company.create({
+            data: { name: googleUser.name || googleUser.email.split('@')[0], plan_id: 'gratis' }
+          });
+          const newUser = await tx.user.create({
+            data: {
+              email: googleUser.email,
+              name: googleUser.name,
+              google_id: googleUser.id,
+              role: 'admin',
+              plan: 'gratis',
+              status: 'active',
+              email_verified: true,
+              company_id: company.id,
+            }
+          });
+          await tx.company.update({ where: { id: company.id }, data: { owner_id: newUser.id } });
+          return { user: newUser, company };
+        });
+        user = { ...result.user, Company: result.company };
+      }
+    }
+
+    if (user.status === 'removed') {
+      return res.redirect(`${FRONTEND_URL}/login?error=account_removed`);
+    }
+
+    const token = signToken(user);
+    res.redirect(`${FRONTEND_URL}/auth/google/callback?token=${encodeURIComponent(token)}`);
+  } catch (err) {
+    console.error('[auth] Google OAuth error:', err);
+    res.redirect(`${FRONTEND_URL}/login?error=google_auth_failed`);
   }
 });
 

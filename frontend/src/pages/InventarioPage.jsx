@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { Plus, Edit, Package, AlertTriangle, ArrowDownRight, ArrowUpRight } from 'lucide-react';
+import CategoryCombobox from '@/components/CategoryCombobox';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -57,6 +58,10 @@ const InventarioPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.categoria) {
+      toast.error('La categoría es obligatoria');
+      return;
+    }
     setSubmitting(true);
     try {
       if (editingProduct) {
@@ -171,7 +176,7 @@ const InventarioPage = () => {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2 col-span-2"><Label>Nombre *</Label><Input value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} required /></div>
             <div className="space-y-2"><Label>SKU</Label><Input value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} /></div>
-            <div className="space-y-2"><Label>Categoría</Label><Input value={formData.categoria} onChange={e => setFormData({...formData, categoria: e.target.value})} /></div>
+            <div className="space-y-2"><Label>Categoría *</Label><CategoryCombobox value={formData.categoria} onChange={(v) => setFormData({...formData, categoria: v})} /></div>
             <div className="space-y-2"><Label>Precio de Venta *</Label><Input type="number" step="0.01" min="0" value={formData.precio} onChange={e => setFormData({...formData, precio: e.target.value})} required /></div>
             <div className="space-y-2"><Label>Costo</Label><Input type="number" step="0.01" min="0" value={formData.costo} onChange={e => setFormData({...formData, costo: e.target.value})} /></div>
             <div className="space-y-2 col-span-2"><Label>Stock Actual *</Label><Input type="number" min="0" value={formData.stock} onChange={e => setFormData({...formData, stock: e.target.value})} required /></div>
