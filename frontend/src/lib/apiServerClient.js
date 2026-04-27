@@ -38,6 +38,11 @@ const api = {
       method: 'PUT', headers: getHeaders(), body: JSON.stringify(data)
     }).then(handleResponse),
 
+  patch: (url, data) =>
+    fetch(`${API_URL}${url}`, {
+      method: 'PATCH', headers: getHeaders(), body: JSON.stringify(data)
+    }).then(handleResponse),
+
   delete: (url) =>
     fetch(`${API_URL}${url}`, { method: 'DELETE', headers: getHeaders() }).then(handleResponse),
 };

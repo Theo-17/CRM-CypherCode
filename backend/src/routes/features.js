@@ -5,9 +5,9 @@ import { authMiddleware } from '../middleware/auth.js';
 const router = express.Router();
 
 export const FEATURE_LIMITS = {
-  gratis:     { clientes: 5,        usuarios: 2 },
-  pro:        { clientes: 100,      usuarios: 10 },
-  enterprise: { clientes: Infinity, usuarios: Infinity }
+  gratis:     { clientes: 5,        usuarios: 2,        automatizaciones: false, reportes_avanzados: false },
+  pro:        { clientes: 100,      usuarios: 10,       automatizaciones: true,  reportes_avanzados: true  },
+  enterprise: { clientes: Infinity, usuarios: Infinity, automatizaciones: true,  reportes_avanzados: true  },
 };
 
 router.post('/validate-feature-limit', authMiddleware, async (req, res) => {

@@ -12,7 +12,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend,
 } from 'recharts';
-import { Download, Loader2, Users, UserCheck, CheckSquare, ShoppingCart, DollarSign } from 'lucide-react';
+import { Download, Loader2, Users, UserCheck, CheckSquare, ShoppingCart, DollarSign, Lock } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -37,20 +37,20 @@ const ReportsPage = () => {
   const [monthly, setMonthly] = useState([]);
   const [vendedores, setVendedores] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [planLocked, setPlanLocked] = useState(false);
   const [exporting, setExporting] = useState(false);
   const reportRef = useRef(null);
 
   useEffect(() => {
     if (getCurrentUserRole() !== 'admin') { navigate('/dashboard'); return; }
+    api.get('/api/reports/stats').then(setStats).catch(console.error);
     Promise.all([
-      api.get('/api/reports/stats'),
-      api.get('/api/reports/monthly'),
-      api.get('/api/reports/vendedores'),
-    ]).then(([s, m, v]) => {
-      setStats(s);
+      api.get('/api/reports/monthly').catch(err => { if (err.message?.includes('gratuito')) setPlanLocked(true); return []; }),
+      api.get('/api/reports/vendedores').catch(() => []),
+    ]).then(([m, v]) => {
       setMonthly(m);
       setVendedores(v);
-    }).catch(console.error).finally(() => setLoading(false));
+    }).finally(() => setLoading(false));
   }, []);
 
   const handleExportPDF = async () => {
@@ -99,6 +99,20 @@ const ReportsPage = () => {
                 <StatCard label="Ingresos" value={`$${(stats?.ingresoTotal ?? 0).toLocaleString()}`} icon={DollarSign} loading={loading} />
               </div>
 
+              {planLocked && (
+                <Card className="border-dashed">
+                  <CardContent className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                    <Lock className="h-10 w-10 text-muted-foreground/40" />
+                    <p className="font-semibold text-lg">Reportes avanzados no disponibles</p>
+                    <p className="text-sm text-muted-foreground max-w-sm">
+                      Las gráficas de crecimiento mensual y el rendimiento por vendedor están disponibles desde el plan Pro.
+                    </p>
+                    <a href="/pricing" className="text-sm text-primary underline underline-offset-4">Ver planes de suscripción</a>
+                  </CardContent>
+                </Card>
+              )}
+
+              {!planLocked && <>
               <Card>
                 <CardHeader>
                   <CardTitle>Crecimiento Últimos 6 Meses</CardTitle>
@@ -170,6 +184,7 @@ const ReportsPage = () => {
                   </CardContent>
                 </Card>
               )}
+              </>}
             </div>
           </main>
         </div>

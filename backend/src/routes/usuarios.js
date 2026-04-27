@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { Resend } from 'resend';
 import prisma from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { FEATURE_LIMITS } from './features.js';
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -53,6 +54,18 @@ router.post('/invite', async (req, res) => {
     }
 
     const company = await prisma.company.findUnique({ where: { id: req.user.company_id } });
+    const plan = company?.plan_id || 'gratis';
+    const userLimit = FEATURE_LIMITS[plan]?.usuarios ?? 2;
+    if (userLimit !== Infinity) {
+      const userCount = await prisma.user.count({
+        where: { company_id: req.user.company_id, status: { not: 'removed' } }
+      });
+      if (userCount >= userLimit) {
+        return res.status(403).json({
+          message: `Tu plan ${plan} permite máximo ${userLimit} usuario${userLimit !== 1 ? 's' : ''}. Actualiza tu suscripción para agregar más.`
+        });
+      }
+    }
 
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);

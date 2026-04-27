@@ -2,6 +2,7 @@ import { Router } from 'express';
 import prisma from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { scopedWhere } from '../lib/scopeWhere.js';
+import { FEATURE_LIMITS } from './features.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -47,6 +48,12 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
+    const company = await prisma.company.findUnique({ where: { id: req.user.company_id } });
+    const plan = company?.plan_id || 'gratis';
+    if (!FEATURE_LIMITS[plan]?.automatizaciones) {
+      return res.status(403).json({ message: 'Las automatizaciones no están disponibles en el plan gratuito. Actualiza tu suscripción.' });
+    }
+
     const template = PREDEFINED_TEMPLATES.find(t => t.id === req.body.templateId);
     if (!template) return res.status(400).json({ message: 'Plantilla no válida' });
     const existing = await prisma.automatizacion.findFirst({

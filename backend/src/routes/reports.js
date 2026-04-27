@@ -2,6 +2,7 @@ import { Router } from 'express';
 import prisma from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { scopedWhere } from '../lib/scopeWhere.js';
+import { FEATURE_LIMITS } from './features.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -33,6 +34,10 @@ router.get('/stats', async (req, res) => {
 
 router.get('/monthly', async (req, res) => {
   try {
+    const company = await prisma.company.findUnique({ where: { id: req.user.company_id } });
+    if (!FEATURE_LIMITS[company?.plan_id || 'gratis']?.reportes_avanzados) {
+      return res.status(403).json({ message: 'Los reportes avanzados no están disponibles en el plan gratuito. Actualiza tu suscripción.' });
+    }
     const whereBase = scopedWhere(req);
 
     const now = new Date();
@@ -66,6 +71,10 @@ router.get('/monthly', async (req, res) => {
 router.get('/vendedores', async (req, res) => {
   try {
     if (req.user.role !== 'admin') return res.status(403).json({ message: 'Solo admins' });
+    const company = await prisma.company.findUnique({ where: { id: req.user.company_id } });
+    if (!FEATURE_LIMITS[company?.plan_id || 'gratis']?.reportes_avanzados) {
+      return res.status(403).json({ message: 'Los reportes avanzados no están disponibles en el plan gratuito. Actualiza tu suscripción.' });
+    }
 
     const vendedores = await prisma.user.findMany({
       where: { company_id: req.user.company_id },

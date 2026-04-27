@@ -8,9 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import ClientAutocomplete from '@/components/ClientAutocomplete';
 import api from '@/lib/apiServerClient';
 import { toast } from 'sonner';
-import { Loader2, Send } from 'lucide-react';
+import { Loader2, Save } from 'lucide-react';
 
-// cliente prop is optional — if not passed, user picks one inside the modal
 const SendEmailModal = ({ open, onOpenChange, cliente: clienteProp }) => {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -27,7 +26,6 @@ const SendEmailModal = ({ open, onOpenChange, cliente: clienteProp }) => {
     }
   }, [open, clienteProp]);
 
-  // When client changes via autocomplete, fetch their email
   const handleClienteChange = async (id) => {
     setClienteId(id);
     setClienteEmail('');
@@ -47,7 +45,7 @@ const SendEmailModal = ({ open, onOpenChange, cliente: clienteProp }) => {
     }
   };
 
-  const handleSend = async (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
     if (!clienteId) { toast.error('Selecciona un cliente'); return; }
     if (!clienteEmail) { toast.error('El cliente no tiene email registrado'); return; }
@@ -60,18 +58,16 @@ const SendEmailModal = ({ open, onOpenChange, cliente: clienteProp }) => {
         asunto: formData.asunto,
         contenido: formData.contenido,
       });
-      const mailtoUrl = `mailto:${encodeURIComponent(clienteEmail)}?subject=${encodeURIComponent(formData.asunto)}&body=${encodeURIComponent(formData.contenido)}`;
-      window.open(mailtoUrl, '_blank');
-      toast.success('Abriendo cliente de correo...');
+      toast.success('Email guardado como pendiente');
       onOpenChange(false);
-    } catch {
-      toast.error('No se pudo registrar el email');
+    } catch (err) {
+      toast.error(err.message || 'Error al guardar el email');
     } finally {
       setLoading(false);
     }
   };
 
-  const titulo = clienteProp ? `Enviar Email a ${clienteProp.nombre}` : 'Nuevo Email';
+  const titulo = clienteProp ? `Nuevo Email a ${clienteProp.nombre}` : 'Nuevo Email';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -79,7 +75,7 @@ const SendEmailModal = ({ open, onOpenChange, cliente: clienteProp }) => {
         <DialogHeader>
           <DialogTitle>{titulo}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSend} className="space-y-4 py-2">
+        <form onSubmit={handleSave} className="space-y-4 py-2">
           {!clienteProp && (
             <div className="space-y-2">
               <Label>Cliente</Label>
@@ -102,23 +98,40 @@ const SendEmailModal = ({ open, onOpenChange, cliente: clienteProp }) => {
 
           <div className="space-y-2">
             <Label>Asunto</Label>
-            <Input value={formData.asunto} onChange={e => setFormData({ ...formData, asunto: e.target.value })} placeholder="Asunto del correo" required />
+            <Input
+              value={formData.asunto}
+              onChange={e => setFormData({ ...formData, asunto: e.target.value })}
+              placeholder="Asunto del correo"
+            />
           </div>
 
           <div className="space-y-2">
             <Label>Contenido</Label>
-            <Textarea value={formData.contenido} onChange={e => setFormData({ ...formData, contenido: e.target.value })} placeholder="Escribe tu mensaje aquí..." rows={6} required />
+            <Textarea
+              value={formData.contenido}
+              onChange={e => setFormData({ ...formData, contenido: e.target.value })}
+              placeholder="Escribe tu mensaje aquí..."
+              rows={6}
+            />
           </div>
 
           {clienteId && !clienteEmail && (
             <p className="text-sm text-destructive">Este cliente no tiene email registrado.</p>
           )}
 
+          {clienteEmail && (
+            <p className="text-xs text-muted-foreground">
+              Se guardará como pendiente para: <strong>{clienteEmail}</strong>
+            </p>
+          )}
+
           <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>Cancelar</Button>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+              Cancelar
+            </Button>
             <Button type="submit" disabled={loading || (!!clienteId && !clienteEmail)}>
-              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-              Abrir en correo
+              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Guardar
             </Button>
           </div>
         </form>
