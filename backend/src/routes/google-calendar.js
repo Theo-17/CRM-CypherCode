@@ -1,50 +1,40 @@
-import 'dotenv/config';
 import express from 'express';
-import pb from '../utils/pocketbaseClient.js';
-import logger from '../utils/logger.js';
+import prisma from '../lib/prisma.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { syncTaskToCalendar } from '../lib/googleCalendarSync.js';
 
 const router = express.Router();
-
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/hcgi/api/google-calendar/callback';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+const CALENDAR_REDIRECT_URI = `${BACKEND_URL}/api/google-calendar/callback`;
 
-// GET /google-calendar/auth
-router.get('/auth', async (req, res) => {
-  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-    return res.status(400).json({ error: 'Google OAuth credentials not configured' });
+// GET /api/google-calendar/auth — devuelve URL de autorización OAuth
+router.get('/auth', authMiddleware, (req, res) => {
+  if (!GOOGLE_CLIENT_ID) {
+    return res.status(400).json({ error: 'Google OAuth no configurado' });
   }
-
-  const { userId } = req.query;
-
-  if (!userId) {
-    return res.status(400).json({ error: 'userId is required' });
-  }
-
-  // Generate authorization URL
-  const scope = encodeURIComponent('https://www.googleapis.com/auth/calendar');
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-    `client_id=${GOOGLE_CLIENT_ID}` +
-    `&redirect_uri=${encodeURIComponent(GOOGLE_REDIRECT_URI)}` +
+  const authUrl =
+    `https://accounts.google.com/o/oauth2/v2/auth` +
+    `?client_id=${encodeURIComponent(GOOGLE_CLIENT_ID)}` +
+    `&redirect_uri=${encodeURIComponent(CALENDAR_REDIRECT_URI)}` +
     `&response_type=code` +
-    `&scope=${scope}` +
-    `&state=${userId}`;
-
-  logger.info(`Generated Google Calendar auth URL for user ${userId}`);
+    `&scope=${encodeURIComponent('https://www.googleapis.com/auth/calendar')}` +
+    `&access_type=offline` +
+    `&prompt=consent` +
+    `&state=${req.user.id}`;
   res.json({ authUrl });
 });
 
-// GET /google-calendar/callback
+// GET /api/google-calendar/callback — Google redirige aquí tras autorizar
 router.get('/callback', async (req, res) => {
-  const { code, state: userId } = req.query;
-
-  if (!code || !userId) {
-    return res.status(400).json({ error: 'Missing code or userId' });
+  const { code, state: userId, error } = req.query;
+  if (error || !code || !userId) {
+    return res.redirect(`${FRONTEND_URL}/integrations?error=google_calendar_failed`);
   }
-
   try {
-    // Exchange code for tokens
-    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -52,143 +42,107 @@ router.get('/callback', async (req, res) => {
         client_secret: GOOGLE_CLIENT_SECRET,
         code,
         grant_type: 'authorization_code',
-        redirect_uri: GOOGLE_REDIRECT_URI,
+        redirect_uri: CALENDAR_REDIRECT_URI,
       }),
     });
+    const tokens = await tokenRes.json();
+    if (!tokenRes.ok) throw new Error(tokens.error_description || 'Token exchange failed');
 
-    if (!tokenResponse.ok) {
-      throw new Error(`Token exchange failed: ${tokenResponse.statusText}`);
-    }
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new Error('Usuario no encontrado');
 
-    const tokens = await tokenResponse.json();
-
-    // Store credentials in integraciones collection
-    const integraciones = await pb.collection('integraciones').getFullList({
-      filter: `usuario = "${userId}" && tipo = "google_calendar"`,
+    const existing = await prisma.integracion.findFirst({
+      where: { usuario_id: userId, proveedor: 'google_calendar' },
     });
 
-    if (integraciones.length > 0) {
-      // Update existing
-      await pb.collection('integraciones').update(integraciones[0].id, {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token || integraciones[0].refresh_token,
-        token_expiry: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+    if (existing) {
+      await prisma.integracion.update({
+        where: { id: existing.id },
+        data: {
+          token_acceso: tokens.access_token,
+          refresh_token: tokens.refresh_token || existing.refresh_token,
+          token_expiry: new Date(Date.now() + tokens.expires_in * 1000),
+          activa: true,
+        },
       });
     } else {
-      // Create new
-      await pb.collection('integraciones').create({
-        usuario: userId,
-        tipo: 'google_calendar',
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        token_expiry: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+      await prisma.integracion.create({
+        data: {
+          usuario_id: userId,
+          company_id: user.company_id,
+          proveedor: 'google_calendar',
+          token_acceso: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+          token_expiry: new Date(Date.now() + tokens.expires_in * 1000),
+          activa: true,
+        },
       });
     }
 
-    logger.info(`Stored Google Calendar credentials for user ${userId}`);
-    res.json({ success: true, message: 'Google Calendar connected successfully' });
-  } catch (error) {
-    logger.error('Error in Google Calendar callback:', error);
-    throw error;
+    res.redirect(`${FRONTEND_URL}/integrations?success=google_calendar`);
+  } catch (err) {
+    console.error('[google-calendar] Callback error:', err);
+    res.redirect(`${FRONTEND_URL}/integrations?error=google_calendar_failed`);
   }
 });
 
-// POST /google-calendar/sync
-router.post('/sync', async (req, res) => {
-  const { userId } = req.body;
-
-  if (!userId) {
-    return res.status(400).json({ error: 'userId is required' });
-  }
-
+// GET /api/google-calendar/status — verifica si está conectado
+router.get('/status', authMiddleware, async (req, res) => {
   try {
-    // Get user's Google Calendar credentials
-    const integraciones = await pb.collection('integraciones').getFullList({
-      filter: `usuario = "${userId}" && tipo = "google_calendar"`,
+    const integration = await prisma.integracion.findFirst({
+      where: { usuario_id: req.user.id, proveedor: 'google_calendar', activa: true },
     });
+    res.json({ connected: !!integration });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al verificar estado' });
+  }
+});
 
-    if (integraciones.length === 0) {
-      return res.status(400).json({ error: 'Google Calendar not connected for this user' });
+// POST /api/google-calendar/sync — sincroniza todas las tareas existentes al calendario
+router.post('/sync', authMiddleware, async (req, res) => {
+  try {
+    const integration = await prisma.integracion.findFirst({
+      where: { usuario_id: req.user.id, proveedor: 'google_calendar', activa: true },
+    });
+    if (!integration) {
+      return res.status(400).json({ error: 'Google Calendar no conectado' });
     }
 
-    const integration = integraciones[0];
-    let accessToken = integration.access_token;
-
-    // Check if token is expired and refresh if needed
-    if (new Date(integration.token_expiry) < new Date()) {
-      const refreshResponse = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: GOOGLE_CLIENT_ID,
-          client_secret: GOOGLE_CLIENT_SECRET,
-          refresh_token: integration.refresh_token,
-          grant_type: 'refresh_token',
-        }),
-      });
-
-      if (!refreshResponse.ok) {
-        throw new Error('Failed to refresh Google Calendar token');
-      }
-
-      const newTokens = await refreshResponse.json();
-      accessToken = newTokens.access_token;
-
-      // Update stored token
-      await pb.collection('integraciones').update(integration.id, {
-        access_token: accessToken,
-        token_expiry: new Date(Date.now() + newTokens.expires_in * 1000).toISOString(),
-      });
-    }
-
-    // Fetch user's tasks
-    const tasks = await pb.collection('tareas').getFullList({
-      filter: `usuario = "${userId}" && estado != "completada"`,
+    const tasks = await prisma.tarea.findMany({
+      where: {
+        usuario_id: req.user.id,
+        NOT: { estado: 'Completada' },
+        fecha_vencimiento: { not: null },
+      },
     });
 
     let syncedCount = 0;
-
-    // Sync each task to Google Calendar
     for (const task of tasks) {
-      const eventData = {
-        summary: task.titulo,
-        description: task.descripcion || '',
-        start: {
-          date: task.fecha_vencimiento,
-        },
-        end: {
-          date: task.fecha_vencimiento,
-        },
-      };
-
-      try {
-        const calendarResponse = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(eventData),
-        });
-
-        if (calendarResponse.ok) {
-          const event = await calendarResponse.json();
-          // Store Google Calendar event ID in task
-          await pb.collection('tareas').update(task.id, {
-            google_calendar_event_id: event.id,
-          });
-          syncedCount++;
+      const eventId = await syncTaskToCalendar(req.user.id, task).catch(() => null);
+      if (eventId) {
+        if (!task.google_calendar_event_id) {
+          await prisma.tarea.update({ where: { id: task.id }, data: { google_calendar_event_id: eventId } }).catch(() => {});
         }
-      } catch (error) {
-        logger.warn(`Failed to sync task ${task.id} to Google Calendar:`, error);
+        syncedCount++;
       }
     }
 
-    logger.info(`Synced ${syncedCount} tasks to Google Calendar for user ${userId}`);
-    res.json({ synced: syncedCount });
-  } catch (error) {
-    logger.error('Error syncing to Google Calendar:', error);
-    throw error;
+    res.json({ synced: syncedCount, total: tasks.length });
+  } catch (err) {
+    console.error('[google-calendar] Sync error:', err);
+    res.status(500).json({ error: 'Error al sincronizar con Google Calendar' });
+  }
+});
+
+// DELETE /api/google-calendar/disconnect — desconecta la integración
+router.delete('/disconnect', authMiddleware, async (req, res) => {
+  try {
+    await prisma.integracion.deleteMany({
+      where: { usuario_id: req.user.id, proveedor: 'google_calendar' },
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al desconectar' });
   }
 });
 

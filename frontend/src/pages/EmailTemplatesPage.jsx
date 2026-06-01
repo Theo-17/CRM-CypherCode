@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { useAuth } from '@/contexts/AuthContext';
-import pb from '@/lib/pocketbaseClient';
+import api from '@/lib/apiServerClient';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import FormModal from '@/components/FormModal';
@@ -26,19 +26,13 @@ const EmailTemplatesPage = () => {
   const [formData, setFormData] = useState({ nombre: '', asunto: '', contenido: '' });
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetchTemplates();
-  }, []);
+  useEffect(() => { fetchTemplates(); }, []);
 
   const fetchTemplates = async () => {
     try {
-      const records = await pb.collection('plantillas_email').getFullList({
-        filter: `usuario_id = "${currentUser.id}"`,
-        sort: '-created',
-        $autoCancel: false
-      });
-      setTemplates(records);
-    } catch (error) {
+      const data = await api.get('/api/plantillas');
+      setTemplates(data);
+    } catch {
       toast.error('Error al cargar plantillas');
     } finally {
       setLoading(false);
@@ -60,17 +54,16 @@ const EmailTemplatesPage = () => {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const data = { ...formData, usuario_id: currentUser.id };
       if (editingTemplate) {
-        await pb.collection('plantillas_email').update(editingTemplate.id, data, { $autoCancel: false });
+        await api.put(`/api/plantillas/${editingTemplate.id}`, formData);
         toast.success('Plantilla actualizada');
       } else {
-        await pb.collection('plantillas_email').create(data, { $autoCancel: false });
+        await api.post('/api/plantillas', formData);
         toast.success('Plantilla creada');
       }
       setModalOpen(false);
       fetchTemplates();
-    } catch (error) {
+    } catch {
       toast.error('Error al guardar plantilla');
     } finally {
       setSubmitting(false);
@@ -79,11 +72,11 @@ const EmailTemplatesPage = () => {
 
   const handleDelete = async () => {
     try {
-      await pb.collection('plantillas_email').delete(templateToDelete.id, { $autoCancel: false });
+      await api.delete(`/api/plantillas/${templateToDelete.id}`);
       toast.success('Plantilla eliminada');
       setDeleteDialogOpen(false);
       fetchTemplates();
-    } catch (error) {
+    } catch {
       toast.error('Error al eliminar');
     }
   };
@@ -97,24 +90,13 @@ const EmailTemplatesPage = () => {
           <Sidebar />
           <main className="flex-1 p-8">
             <div className="flex justify-between items-center mb-8">
-              <div>
-                <h1 className="text-3xl font-bold mb-2">Plantillas de Email</h1>
-                <p className="text-muted-foreground">Gestiona tus plantillas de correo</p>
-              </div>
-              <Button onClick={() => handleOpenModal()}><Plus className="h-4 w-4 mr-2" /> Nueva Plantilla</Button>
+              <div><h1 className="text-3xl font-bold mb-2">Plantillas de Email</h1><p className="text-muted-foreground">Gestiona tus plantillas de correo</p></div>
+              <Button onClick={() => handleOpenModal()}><Plus className="h-4 w-4 mr-2" />Nueva Plantilla</Button>
             </div>
-
             {loading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {[1, 2].map(i => <Skeleton key={i} className="h-48 w-full" />)}
-              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">{[1,2].map(i => <Skeleton key={i} className="h-48 w-full" />)}</div>
             ) : templates.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-16">
-                  <Mail className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                  <p className="text-lg font-medium">No hay plantillas</p>
-                </CardContent>
-              </Card>
+              <Card><CardContent className="flex flex-col items-center justify-center py-16"><Mail className="h-12 w-12 text-muted-foreground mb-4 opacity-50" /><p className="text-lg font-medium">No hay plantillas</p></CardContent></Card>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {templates.map(template => (
@@ -140,18 +122,9 @@ const EmailTemplatesPage = () => {
 
       <FormModal open={modalOpen} onOpenChange={setModalOpen} title={editingTemplate ? 'Editar Plantilla' : 'Nueva Plantilla'}>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label>Nombre de la plantilla</Label>
-            <Input value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} required />
-          </div>
-          <div className="space-y-2">
-            <Label>Asunto</Label>
-            <Input value={formData.asunto} onChange={e => setFormData({...formData, asunto: e.target.value})} required />
-          </div>
-          <div className="space-y-2">
-            <Label>Contenido</Label>
-            <Textarea value={formData.contenido} onChange={e => setFormData({...formData, contenido: e.target.value})} rows={6} required />
-          </div>
+          <div className="space-y-2"><Label>Nombre</Label><Input value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} required /></div>
+          <div className="space-y-2"><Label>Asunto</Label><Input value={formData.asunto} onChange={e => setFormData({...formData, asunto: e.target.value})} required /></div>
+          <div className="space-y-2"><Label>Contenido</Label><Textarea value={formData.contenido} onChange={e => setFormData({...formData, contenido: e.target.value})} rows={6} required /></div>
           <div className="flex justify-end gap-3 pt-4">
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancelar</Button>
             <Button type="submit" disabled={submitting}>{submitting ? 'Guardando...' : 'Guardar'}</Button>
@@ -159,13 +132,7 @@ const EmailTemplatesPage = () => {
         </form>
       </FormModal>
 
-      <ConfirmDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        title="Eliminar plantilla"
-        description="¿Estás seguro de eliminar esta plantilla?"
-        onConfirm={handleDelete}
-      />
+      <ConfirmDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen} title="Eliminar plantilla" description="¿Eliminar esta plantilla?" onConfirm={handleDelete} />
     </>
   );
 };

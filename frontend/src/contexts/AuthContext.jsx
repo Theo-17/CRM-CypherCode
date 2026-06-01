@@ -1,14 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import pb from '@/lib/pocketbaseClient';
-import apiServerClient from '@/lib/apiServerClient';
 
 const AuthContext = createContext(null);
+const API_URL = 'http://localhost:3000';
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
 };
 
@@ -18,87 +15,140 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const initAuth = async () => {
-      if (pb.authStore.isValid) {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
         try {
-          // Refresh to get latest role and plan
-          const authData = await pb.collection('users').authRefresh({ $autoCancel: false });
-          setCurrentUser(authData.record);
-        } catch (err) {
-          pb.authStore.clear();
-          setCurrentUser(null);
+          const response = await fetch(`${API_URL}/api/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setCurrentUser(data.user);
+          } else {
+            localStorage.removeItem('auth_token');
+          }
+        } catch {
+          localStorage.removeItem('auth_token');
         }
       }
       setInitialLoading(false);
     };
-
     initAuth();
-
-    const unsubscribe = pb.authStore.onChange((token, model) => {
-      setCurrentUser(model);
-    });
-
-    return () => unsubscribe();
   }, []);
 
+  // Escucha el evento de sesión revocada (admin eliminó al usuario)
+  useEffect(() => {
+    const handleRevoked = () => setCurrentUser(null);
+    window.addEventListener('auth:session-revoked', handleRevoked);
+    return () => window.removeEventListener('auth:session-revoked', handleRevoked);
+  }, []);
+
+  // Verifica la sesión cada 60 segundos mientras el usuario está logueado
+  useEffect(() => {
+    if (!currentUser) return;
+    const interval = setInterval(async () => {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+      try {
+        const response = await fetch(`${API_URL}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (response.status === 401) {
+          localStorage.removeItem('auth_token');
+          setCurrentUser(null);
+        }
+      } catch {}
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
   const login = async (email, password) => {
-    const response = await fetch('http://localhost:3000/api/auth/login', {
+    const response = await fetch(`${API_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Login failed');
+    if (!response.ok) throw Object.assign(new Error(data.message || 'Login failed'), { isPending: data.isPending, needsVerification: data.needsVerification });
     localStorage.setItem('auth_token', data.token);
     setCurrentUser(data.user);
     return data;
   };
 
-  const signup = async (name, email, password, empresa) => {
-    const response = await fetch('http://localhost:3000/api/auth/signup', {
+  const signup = async (name, email, password, companyName) => {
+    const response = await fetch(`${API_URL}/api/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password, empresa })
+      body: JSON.stringify({ name, email, password, companyName })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Signup failed');
+    if (data.needsVerification) return { needsVerification: true };
     localStorage.setItem('auth_token', data.token);
+    setCurrentUser(data.user);
+    return data;
+  };
+
+  const checkEmail = async (email) => {
+    const response = await fetch(`${API_URL}/api/auth/check-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    return response.json();
+  };
+
+  const activateAccount = async (token, password) => {
+    const response = await fetch(`${API_URL}/api/auth/setup-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Error al activar cuenta');
+    localStorage.setItem('auth_token', data.token);
+    setCurrentUser(data.user);
+    return data.user;
+  };
+
+  const loginWithToken = async (token) => {
+    const response = await fetch(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Sesión inválida');
+    localStorage.setItem('auth_token', token);
     setCurrentUser(data.user);
     return data.user;
   };
 
   const logout = () => {
     localStorage.removeItem('auth_token');
-    pb.authStore.clear();
     setCurrentUser(null);
   };
 
   const getCurrentUserPlan = () => currentUser?.plan || 'gratis';
-  const getCurrentUserRole = () => currentUser?.rol || 'vendedor';
+  const getCurrentUserRole = () => currentUser?.role || currentUser?.rol || 'admin';
 
-  const checkFeatureLimit = async (feature) => {
-    if (!currentUser) return { allowed: false, current: 0, limit: 0, plan: 'gratis' };
+  const checkFeatureLimit = async () => {
+    if (!currentUser) return { allowed: true, current: 0, limit: -1, plan: 'gratis' };
     try {
-      const response = await apiServerClient.fetch('/features/validate-feature-limit', {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/features/validate-feature-limit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: currentUser.id,
-          feature
-        })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
       });
-      if (!response.ok) throw new Error('Failed to check limit');
+      if (!response.ok) throw new Error();
       return await response.json();
-    } catch (error) {
-      console.error('Feature limit check error:', error);
-      return { allowed: true, current: 0, limit: -1, plan: getCurrentUserPlan() }; // Fallback
+    } catch {
+      return { allowed: true, current: 0, limit: -1, plan: getCurrentUserPlan() };
     }
   };
 
   const value = {
     currentUser,
-    login,
-    signup,
-    logout,
+    login, signup, logout, loginWithToken,
+    checkEmail, activateAccount,
     isAuthenticated: !!currentUser,
     getCurrentUserPlan,
     getCurrentUserRole,

@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { useAuth } from '@/contexts/AuthContext';
-import apiServerClient from '@/lib/apiServerClient';
+import api from '@/lib/apiServerClient';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Upload, Loader2 } from 'lucide-react';
+import { Upload, Loader2, FileText } from 'lucide-react';
 
 const ImportClientsPage = () => {
   const { currentUser } = useAuth();
@@ -15,34 +15,21 @@ const ImportClientsPage = () => {
   const [loading, setLoading] = useState(false);
 
   const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-    }
+    if (e.target.files?.[0]) setFile(e.target.files[0]);
   };
 
   const handleImport = async () => {
     if (!file) return;
     setLoading(true);
     try {
-      const text = await file.text();
-      const response = await apiServerClient.fetch('/import/import-clients', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csvContent: text, userId: currentUser.id })
-      });
-      
-      const data = await response.json();
-      if (response.ok) {
-        toast.success(`Importación completada: ${data.imported} importados, ${data.skipped} omitidos.`);
-      } else {
-        toast.error('Error en la importación');
-      }
-    } catch (error) {
-      console.error('Import error:', error);
-      toast.error('Error al procesar el archivo');
+      const csvContent = await file.text();
+      const data = await api.post('/import/import-clients', { csvContent, userId: currentUser.id });
+      toast.success(`Importación completada: ${data.imported} importados, ${data.skipped} omitidos.`);
+      setFile(null);
+    } catch (err) {
+      toast.error(err.message || 'Error al procesar el archivo');
     } finally {
       setLoading(false);
-      setFile(null);
     }
   };
 
@@ -59,29 +46,38 @@ const ImportClientsPage = () => {
               <p className="text-muted-foreground">Sube un archivo CSV para importar clientes masivamente</p>
             </div>
 
-            <Card className="max-w-xl">
-              <CardHeader>
-                <CardTitle>Subir Archivo CSV</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="border-2 border-dashed rounded-xl p-8 text-center">
-                  <Upload className="h-8 w-8 mx-auto mb-4 text-muted-foreground" />
-                  <input 
-                    type="file" 
-                    accept=".csv" 
-                    onChange={handleFileChange} 
-                    className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
-                  />
-                </div>
-                <Button onClick={handleImport} disabled={!file || loading} className="w-full">
-                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Importar Datos
-                </Button>
-                <p className="text-xs text-muted-foreground text-center">
-                  Formato requerido: nombre, email, telefono, empresa, estado, notas
-                </p>
-              </CardContent>
-            </Card>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-3xl">
+              <Card>
+                <CardHeader><CardTitle>Subir Archivo CSV</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  <label className="border-2 border-dashed rounded-xl p-8 text-center flex flex-col items-center gap-3 cursor-pointer hover:border-primary/50 transition-colors">
+                    {file ? <FileText className="h-8 w-8 text-primary" /> : <Upload className="h-8 w-8 text-muted-foreground" />}
+                    <span className="text-sm text-muted-foreground">{file ? file.name : 'Haz clic o arrastra tu archivo CSV'}</span>
+                    <input type="file" accept=".csv" onChange={handleFileChange} className="hidden" />
+                  </label>
+                  <Button onClick={handleImport} disabled={!file || loading} className="w-full">
+                    {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Importar Datos
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader><CardTitle>Formato Requerido</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground">El CSV debe tener las siguientes columnas:</p>
+                  <div className="space-y-2">
+                    {['nombre (requerido)', 'email', 'telefono', 'empresa', 'estado', 'notas'].map(col => (
+                      <div key={col} className="flex items-center gap-2 text-sm">
+                        <div className="h-1.5 w-1.5 rounded-full bg-primary" />
+                        <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{col}</code>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-4">La primera fila debe ser el encabezado.</p>
+                </CardContent>
+              </Card>
+            </div>
           </main>
         </div>
       </div>

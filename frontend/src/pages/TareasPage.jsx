@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
-import pb from '@/lib/pocketbaseClient';
+import api from '@/lib/apiServerClient';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import FormModal from '@/components/FormModal';
@@ -25,6 +26,7 @@ import { es } from 'date-fns/locale';
 
 const TareasPage = () => {
   const { currentUser } = useAuth();
+  const location = useLocation();
   const [tareas, setTareas] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -34,47 +36,28 @@ const TareasPage = () => {
   const [editingTask, setEditingTask] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState(null);
-  
-  const [formData, setFormData] = useState({
-    titulo: '',
-    descripcion: '',
-    cliente_id: '',
-    fecha_vencimiento: '',
-    prioridad: 'Media',
-    estado: 'Pendiente'
-  });
-  
-  const [reminders, setReminders] = useState({
-    dayBefore: false,
-    hourBefore: false,
-    halfHourBefore: false,
-    custom: false,
-    customMinutes: 15
-  });
-
+  const [formData, setFormData] = useState({ titulo: '', descripcion: '', cliente_id: '', fecha_vencimiento: '', prioridad: 'Media', estado: 'Pendiente' });
+  const [reminders, setReminders] = useState({ dayBefore: false, hourBefore: false, halfHourBefore: false, custom: false, customMinutes: 15 });
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => { fetchData(); }, []);
+
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (!loading && location.state?.editId) {
+      const tarea = tareas.find(t => t.id === location.state.editId);
+      if (tarea) { handleOpenModal(tarea); window.history.replaceState({}, ''); }
+    }
+  }, [loading, tareas]);
 
   const fetchData = async () => {
     try {
       const [tareasData, clientesData] = await Promise.all([
-        pb.collection('tareas').getFullList({
-          filter: `usuario_id = "${currentUser.id}"`,
-          sort: '-created',
-          $autoCancel: false
-        }),
-        pb.collection('clientes').getFullList({
-          filter: `usuario_id = "${currentUser.id}"`,
-          sort: 'nombre',
-          $autoCancel: false
-        })
+        api.get('/api/tareas'),
+        api.get('/api/clientes')
       ]);
       setTareas(tareasData);
       setClientes(clientesData);
-    } catch (error) {
+    } catch {
       toast.error('Error al cargar las tareas');
     } finally {
       setLoading(false);
@@ -92,87 +75,46 @@ const TareasPage = () => {
     if (task) {
       setEditingTask(task);
       setFormData({
-        titulo: task.titulo,
-        descripcion: task.descripcion || '',
-        cliente_id: task.cliente_id || '',
-        fecha_vencimiento: task.fecha_vencimiento ? new Date(task.fecha_vencimiento).toISOString().slice(0, 16) : '',
-        prioridad: task.prioridad,
-        estado: task.estado
+        titulo: task.titulo, descripcion: task.descripcion || '',
+        cliente_id: task.cliente_id || '', prioridad: task.prioridad || 'Media', estado: task.estado,
+        fecha_vencimiento: task.fecha_vencimiento ? (() => {
+          const d = new Date(task.fecha_vencimiento);
+          const pad = n => String(n).padStart(2, '0');
+          return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        })() : ''
       });
-      setReminders({ dayBefore: false, hourBefore: false, halfHourBefore: false, custom: false, customMinutes: 15 });
     } else {
       setEditingTask(null);
-      setFormData({
-        titulo: '',
-        descripcion: '',
-        cliente_id: '',
-        fecha_vencimiento: '',
-        prioridad: 'Media',
-        estado: 'Pendiente'
-      });
-      setReminders({ dayBefore: false, hourBefore: false, halfHourBefore: false, custom: false, customMinutes: 15 });
+      setFormData({ titulo: '', descripcion: '', cliente_id: '', fecha_vencimiento: '', prioridad: 'Media', estado: 'Pendiente' });
     }
+    setReminders({ dayBefore: false, hourBefore: false, halfHourBefore: false, custom: false, customMinutes: 15 });
     setModalOpen(true);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!formData.titulo) {
-      return toast.error('El título es obligatorio');
-    }
-
-    let formattedDate = '';
-    if (formData.fecha_vencimiento) {
-      try {
-        formattedDate = new Date(formData.fecha_vencimiento).toISOString();
-      } catch (err) {
-        return toast.error('Formato de fecha inválido');
-      }
-    }
-
+    if (!formData.titulo) return toast.error('El título es obligatorio');
     setSubmitting(true);
     try {
-      const data = {
-        ...formData,
-        fecha_vencimiento: formattedDate,
-        usuario_id: currentUser.id
-      };
-
-      let taskId;
+      const reminderList = [];
+      if (formData.fecha_vencimiento) {
+        if (reminders.dayBefore) reminderList.push(24 * 60);
+        if (reminders.hourBefore) reminderList.push(60);
+        if (reminders.halfHourBefore) reminderList.push(30);
+        if (reminders.custom && reminders.customMinutes > 0) reminderList.push(Number(reminders.customMinutes));
+      }
+      const payload = { ...formData, reminders: reminderList };
       if (editingTask) {
-        await pb.collection('tareas').update(editingTask.id, data, { $autoCancel: false });
-        taskId = editingTask.id;
-        toast.success('Tarea actualizada correctamente');
+        await api.put(`/api/tareas/${editingTask.id}`, payload);
+        toast.success('Tarea actualizada');
       } else {
-        const newTask = await pb.collection('tareas').create(data, { $autoCancel: false });
-        taskId = newTask.id;
-        toast.success('Tarea creada correctamente');
+        await api.post('/api/tareas', payload);
+        toast.success('Tarea creada');
       }
-
-      // Handle Reminders if date is set
-      if (formattedDate) {
-        const reminderTimes = [];
-        if (reminders.dayBefore) reminderTimes.push(24 * 60);
-        if (reminders.hourBefore) reminderTimes.push(60);
-        if (reminders.halfHourBefore) reminderTimes.push(30);
-        if (reminders.custom && reminders.customMinutes > 0) reminderTimes.push(Number(reminders.customMinutes));
-
-        for (const minutes of reminderTimes) {
-          await pb.collection('recordatorios').create({
-            tarea_id: taskId,
-            usuario_id: currentUser.id,
-            tiempo_antes: minutes,
-            enviado: false
-          }, { $autoCancel: false });
-        }
-      }
-
       setModalOpen(false);
       fetchData();
     } catch (error) {
-      console.error('Task save error:', error);
-      toast.error(error.message || 'Error al guardar la tarea. Verifica los datos.');
+      toast.error(error.message || 'Error al guardar la tarea');
     } finally {
       setSubmitting(false);
     }
@@ -180,29 +122,28 @@ const TareasPage = () => {
 
   const handleStatusChange = async (taskId, newStatus) => {
     try {
-      await pb.collection('tareas').update(taskId, { estado: newStatus }, { $autoCancel: false });
+      await api.put(`/api/tareas/${taskId}/estado`, { estado: newStatus });
       toast.success('Estado actualizado');
       fetchData();
-    } catch (error) {
+    } catch {
       toast.error('Error al actualizar el estado');
     }
   };
 
   const handleDelete = async () => {
     try {
-      await pb.collection('tareas').delete(taskToDelete.id, { $autoCancel: false });
-      toast.success('Tarea eliminada correctamente');
+      await api.delete(`/api/tareas/${taskToDelete.id}`);
+      toast.success('Tarea eliminada');
       setDeleteDialogOpen(false);
       fetchData();
-    } catch (error) {
+    } catch {
       toast.error('Error al eliminar la tarea');
     }
   };
 
   const getClienteName = (clienteId) => {
     if (!clienteId) return 'Sin cliente asignado';
-    const cliente = clientes.find(c => c.id === clienteId);
-    return cliente ? cliente.nombre : 'Cliente desconocido';
+    return clientes.find(c => c.id === clienteId)?.nombre || 'Cliente desconocido';
   };
 
   const filteredTareas = getFilteredTareas();
@@ -222,9 +163,7 @@ const TareasPage = () => {
 
             <div className="flex flex-col md:flex-row gap-4 mb-6">
               <Select value={filterPrioridad} onValueChange={setFilterPrioridad}>
-                <SelectTrigger className="w-full md:w-48">
-                  <SelectValue placeholder="Filtrar por prioridad" />
-                </SelectTrigger>
+                <SelectTrigger className="w-full md:w-48"><SelectValue placeholder="Filtrar por prioridad" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas las prioridades</SelectItem>
                   <SelectItem value="Alta">Alta</SelectItem>
@@ -233,9 +172,7 @@ const TareasPage = () => {
                 </SelectContent>
               </Select>
               <div className="flex-1" />
-              <Button onClick={() => handleOpenModal()}>
-                <Plus className="h-4 w-4 mr-2" /> Nueva Tarea
-              </Button>
+              <Button onClick={() => handleOpenModal()}><Plus className="h-4 w-4 mr-2" />Nueva Tarea</Button>
             </div>
 
             <Tabs value={filterEstado} onValueChange={setFilterEstado}>
@@ -245,22 +182,14 @@ const TareasPage = () => {
                 <TabsTrigger value="En Progreso">En Progreso</TabsTrigger>
                 <TabsTrigger value="Completada">Completadas</TabsTrigger>
               </TabsList>
-
               <TabsContent value={filterEstado}>
                 {loading ? (
-                  <div className="space-y-4">
-                    {[1, 2, 3].map(i => <Skeleton key={i} className="h-32 w-full" />)}
-                  </div>
+                  <div className="space-y-4">{[1,2,3].map(i => <Skeleton key={i} className="h-32 w-full" />)}</div>
                 ) : filteredTareas.length === 0 ? (
-                  <Card>
-                    <CardContent className="flex flex-col items-center justify-center py-16">
-                      <CalendarIcon className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                      <p className="text-lg font-medium">No hay tareas</p>
-                    </CardContent>
-                  </Card>
+                  <Card><CardContent className="flex flex-col items-center justify-center py-16"><CalendarIcon className="h-12 w-12 text-muted-foreground mb-4 opacity-50" /><p className="text-lg font-medium">No hay tareas</p></CardContent></Card>
                 ) : (
                   <div className="space-y-4">
-                    {filteredTareas.map((tarea) => (
+                    {filteredTareas.map(tarea => (
                       <Card key={tarea.id} className="hover:shadow-md transition-all">
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between mb-4">
@@ -270,9 +199,7 @@ const TareasPage = () => {
                                 <PriorityBadge priority={tarea.prioridad} />
                                 <StatusBadge status={tarea.estado} type="task" />
                               </div>
-                              <p className="text-sm text-muted-foreground mb-2">
-                                Cliente: {getClienteName(tarea.cliente_id)}
-                              </p>
+                              <p className="text-sm text-muted-foreground mb-2">Cliente: {getClienteName(tarea.cliente_id)}</p>
                               {tarea.descripcion && <p className="text-sm text-muted-foreground mb-3">{tarea.descripcion}</p>}
                               {tarea.fecha_vencimiento && (
                                 <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -288,8 +215,8 @@ const TareasPage = () => {
                           </div>
                           <div className="flex gap-2">
                             {tarea.estado !== 'Pendiente' && <Button variant="outline" size="sm" onClick={() => handleStatusChange(tarea.id, 'Pendiente')}>Marcar Pendiente</Button>}
-                            {tarea.estado !== 'En Progreso' && <Button variant="outline" size="sm" onClick={() => handleStatusChange(tarea.id, 'En Progreso')}>Marcar En Progreso</Button>}
-                            {tarea.estado !== 'Completada' && <Button variant="outline" size="sm" onClick={() => handleStatusChange(tarea.id, 'Completada')}>Marcar Completada</Button>}
+                            {tarea.estado !== 'En Progreso' && <Button variant="outline" size="sm" onClick={() => handleStatusChange(tarea.id, 'En Progreso')}>En Progreso</Button>}
+                            {tarea.estado !== 'Completada' && <Button variant="outline" size="sm" onClick={() => handleStatusChange(tarea.id, 'Completada')}>Completada</Button>}
                           </div>
                         </CardContent>
                       </Card>
@@ -304,74 +231,42 @@ const TareasPage = () => {
 
       <FormModal open={modalOpen} onOpenChange={setModalOpen} title={editingTask ? 'Editar Tarea' : 'Nueva Tarea'}>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label>Título *</Label>
-            <Input value={formData.titulo} onChange={(e) => setFormData({ ...formData, titulo: e.target.value })} required />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Cliente (Opcional)</Label>
-            <ClientAutocomplete value={formData.cliente_id} onChange={(val) => setFormData({ ...formData, cliente_id: val })} />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Descripción</Label>
-            <Textarea value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })} rows={3} />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Fecha y Hora de Vencimiento</Label>
-            <Input type="datetime-local" value={formData.fecha_vencimiento} onChange={(e) => setFormData({ ...formData, fecha_vencimiento: e.target.value })} />
-          </div>
-
+          <div className="space-y-2"><Label>Título *</Label><Input value={formData.titulo} onChange={e => setFormData({...formData, titulo: e.target.value})} required /></div>
+          <div className="space-y-2"><Label>Cliente (Opcional)</Label><ClientAutocomplete value={formData.cliente_id} onChange={v => setFormData({...formData, cliente_id: v})} /></div>
+          <div className="space-y-2"><Label>Descripción</Label><Textarea value={formData.descripcion} onChange={e => setFormData({...formData, descripcion: e.target.value})} rows={3} /></div>
+          <div className="space-y-2"><Label>Fecha y Hora de Vencimiento</Label><Input type="datetime-local" value={formData.fecha_vencimiento} onChange={e => setFormData({...formData, fecha_vencimiento: e.target.value})} /></div>
           {formData.fecha_vencimiento && !editingTask && (
             <div className="p-4 border rounded-lg bg-muted/30 space-y-3">
-              <Label className="flex items-center gap-2 text-primary"><Bell className="h-4 w-4" /> Recordatorios</Label>
-              <div className="flex items-center space-x-2">
-                <Checkbox id="r1" checked={reminders.dayBefore} onCheckedChange={(c) => setReminders({...reminders, dayBefore: c})} />
-                <label htmlFor="r1" className="text-sm font-medium leading-none">1 día antes</label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox id="r2" checked={reminders.hourBefore} onCheckedChange={(c) => setReminders({...reminders, hourBefore: c})} />
-                <label htmlFor="r2" className="text-sm font-medium leading-none">1 hora antes</label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox id="r3" checked={reminders.halfHourBefore} onCheckedChange={(c) => setReminders({...reminders, halfHourBefore: c})} />
-                <label htmlFor="r3" className="text-sm font-medium leading-none">30 minutos antes</label>
-              </div>
+              <Label className="flex items-center gap-2 text-primary"><Bell className="h-4 w-4" />Recordatorios</Label>
+              {[{id:'r1',label:'1 día antes',key:'dayBefore'},{id:'r2',label:'1 hora antes',key:'hourBefore'},{id:'r3',label:'30 min antes',key:'halfHourBefore'}].map(r => (
+                <div key={r.id} className="flex items-center space-x-2">
+                  <Checkbox id={r.id} checked={reminders[r.key]} onCheckedChange={c => setReminders({...reminders, [r.key]: c})} />
+                  <label htmlFor={r.id} className="text-sm font-medium">{r.label}</label>
+                </div>
+              ))}
               <div className="flex items-center space-x-2 pt-2">
-                <Checkbox id="r4" checked={reminders.custom} onCheckedChange={(c) => setReminders({...reminders, custom: c})} />
-                <label htmlFor="r4" className="text-sm font-medium leading-none">Personalizado (minutos antes):</label>
-                <Input type="number" className="w-20 h-8" min="1" value={reminders.customMinutes} onChange={(e) => setReminders({...reminders, customMinutes: e.target.value})} disabled={!reminders.custom} />
+                <Checkbox id="r4" checked={reminders.custom} onCheckedChange={c => setReminders({...reminders, custom: c})} />
+                <label htmlFor="r4" className="text-sm font-medium">Personalizado (min):</label>
+                <Input type="number" className="w-20 h-8" min="1" value={reminders.customMinutes} onChange={e => setReminders({...reminders, customMinutes: e.target.value})} disabled={!reminders.custom} />
               </div>
             </div>
           )}
-
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Prioridad</Label>
-              <Select value={formData.prioridad} onValueChange={(value) => setFormData({ ...formData, prioridad: value })}>
+              <Select value={formData.prioridad} onValueChange={v => setFormData({...formData, prioridad: v})}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Alta">Alta</SelectItem>
-                  <SelectItem value="Media">Media</SelectItem>
-                  <SelectItem value="Baja">Baja</SelectItem>
-                </SelectContent>
+                <SelectContent><SelectItem value="Alta">Alta</SelectItem><SelectItem value="Media">Media</SelectItem><SelectItem value="Baja">Baja</SelectItem></SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <Label>Estado</Label>
-              <Select value={formData.estado} onValueChange={(value) => setFormData({ ...formData, estado: value })}>
+              <Select value={formData.estado} onValueChange={v => setFormData({...formData, estado: v})}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Pendiente">Pendiente</SelectItem>
-                  <SelectItem value="En Progreso">En Progreso</SelectItem>
-                  <SelectItem value="Completada">Completada</SelectItem>
-                </SelectContent>
+                <SelectContent><SelectItem value="Pendiente">Pendiente</SelectItem><SelectItem value="En Progreso">En Progreso</SelectItem><SelectItem value="Completada">Completada</SelectItem></SelectContent>
               </Select>
             </div>
           </div>
-
           <div className="flex gap-3 pt-4">
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)} className="flex-1">Cancelar</Button>
             <Button type="submit" disabled={submitting} className="flex-1">{submitting ? 'Guardando...' : 'Guardar'}</Button>
@@ -379,13 +274,7 @@ const TareasPage = () => {
         </form>
       </FormModal>
 
-      <ConfirmDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        title="Eliminar tarea"
-        description="¿Estás seguro de que deseas eliminar esta tarea?"
-        onConfirm={handleDelete}
-      />
+      <ConfirmDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen} title="Eliminar tarea" description="¿Eliminar esta tarea?" onConfirm={handleDelete} />
     </>
   );
 };

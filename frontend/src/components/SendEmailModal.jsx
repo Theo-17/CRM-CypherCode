@@ -1,151 +1,139 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import pb from '@/lib/pocketbaseClient';
-import apiServerClient from '@/lib/apiServerClient';
+import ClientAutocomplete from '@/components/ClientAutocomplete';
+import api from '@/lib/apiServerClient';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { Loader2, Save } from 'lucide-react';
 
-const SendEmailModal = ({ open, onOpenChange, cliente }) => {
-  const { currentUser } = useAuth();
+const SendEmailModal = ({ open, onOpenChange, cliente: clienteProp }) => {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    templateId: 'custom',
-    asunto: '',
-    contenido: ''
-  });
+  const [clienteId, setClienteId] = useState(clienteProp?.id || '');
+  const [clienteEmail, setClienteEmail] = useState(clienteProp?.email || '');
+  const [formData, setFormData] = useState({ templateId: 'custom', asunto: '', contenido: '' });
 
   useEffect(() => {
     if (open) {
-      fetchTemplates();
       setFormData({ templateId: 'custom', asunto: '', contenido: '' });
+      setClienteId(clienteProp?.id || '');
+      setClienteEmail(clienteProp?.email || '');
+      api.get('/api/plantillas').then(setTemplates).catch(() => {});
     }
-  }, [open]);
+  }, [open, clienteProp]);
 
-  const fetchTemplates = async () => {
+  const handleClienteChange = async (id) => {
+    setClienteId(id);
+    setClienteEmail('');
+    if (!id) return;
     try {
-      const records = await pb.collection('plantillas_email').getFullList({
-        filter: `usuario_id = "${currentUser.id}"`,
-        $autoCancel: false
-      });
-      setTemplates(records);
-    } catch (error) {
-      console.error('Error fetching templates:', error);
-    }
+      const c = await api.get(`/api/clientes/${id}`);
+      setClienteEmail(c.email || '');
+    } catch {}
   };
 
   const handleTemplateChange = (templateId) => {
     if (templateId === 'custom') {
       setFormData({ templateId, asunto: '', contenido: '' });
     } else {
-      const template = templates.find(t => t.id === templateId);
-      if (template) {
-        setFormData({
-          templateId,
-          asunto: template.asunto,
-          contenido: template.contenido
-        });
-      }
+      const tpl = templates.find(t => t.id === templateId);
+      if (tpl) setFormData({ templateId, asunto: tpl.asunto, contenido: tpl.contenido });
     }
   };
 
-  const handleSend = async (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
-    if (!formData.asunto || !formData.contenido) {
-      toast.error('Asunto y contenido son requeridos');
-      return;
-    }
-
+    if (!clienteId) { toast.error('Selecciona un cliente'); return; }
+    if (!clienteEmail) { toast.error('El cliente no tiene email registrado'); return; }
+    if (!formData.asunto || !formData.contenido) { toast.error('Asunto y contenido son requeridos'); return; }
     setLoading(true);
     try {
-      const response = await apiServerClient.fetch('/emails/send-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clienteId: cliente.id,
-          templateId: formData.templateId === 'custom' ? null : formData.templateId,
-          asunto: formData.asunto,
-          contenido: formData.contenido,
-          destinatario: cliente.email
-        })
+      await api.post('/api/emails', {
+        cliente_id: clienteId,
+        plantilla_id: formData.templateId !== 'custom' ? formData.templateId : null,
+        asunto: formData.asunto,
+        contenido: formData.contenido,
       });
-
-      if (!response.ok) throw new Error('Error al enviar email');
-      
-      toast.success('Email enviado correctamente');
+      toast.success('Email guardado como pendiente');
       onOpenChange(false);
-    } catch (error) {
-      console.error('Send email error:', error);
-      toast.error('No se pudo enviar el email');
+    } catch (err) {
+      toast.error(err.message || 'Error al guardar el email');
     } finally {
       setLoading(false);
     }
   };
 
+  const titulo = clienteProp ? `Nuevo Email a ${clienteProp.nombre}` : 'Nuevo Email';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Enviar Email a {cliente?.nombre}</DialogTitle>
+          <DialogTitle>{titulo}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSend} className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label>Plantilla</Label>
-            <Select value={formData.templateId} onValueChange={handleTemplateChange}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar plantilla" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="custom">Personalizado</SelectItem>
-                {templates.map(t => (
-                  <SelectItem key={t.id} value={t.id}>{t.nombre}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <form onSubmit={handleSave} className="space-y-4 py-2">
+          {!clienteProp && (
+            <div className="space-y-2">
+              <Label>Cliente</Label>
+              <ClientAutocomplete value={clienteId} onChange={handleClienteChange} placeholder="Buscar cliente..." />
+            </div>
+          )}
+
+          {templates.length > 0 && (
+            <div className="space-y-2">
+              <Label>Plantilla</Label>
+              <Select value={formData.templateId} onValueChange={handleTemplateChange}>
+                <SelectTrigger><SelectValue placeholder="Seleccionar plantilla" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="custom">Personalizado</SelectItem>
+                  {templates.map(t => <SelectItem key={t.id} value={t.id}>{t.nombre}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Asunto</Label>
-            <Input 
+            <Input
               value={formData.asunto}
-              onChange={(e) => setFormData({...formData, asunto: e.target.value})}
+              onChange={e => setFormData({ ...formData, asunto: e.target.value })}
               placeholder="Asunto del correo"
             />
           </div>
 
           <div className="space-y-2">
             <Label>Contenido</Label>
-            <Textarea 
+            <Textarea
               value={formData.contenido}
-              onChange={(e) => setFormData({...formData, contenido: e.target.value})}
+              onChange={e => setFormData({ ...formData, contenido: e.target.value })}
               placeholder="Escribe tu mensaje aquí..."
               rows={6}
             />
           </div>
 
-          <div className="flex justify-end gap-3 pt-4">
+          {clienteId && !clienteEmail && (
+            <p className="text-sm text-destructive">Este cliente no tiene email registrado.</p>
+          )}
+
+          {clienteEmail && (
+            <p className="text-xs text-muted-foreground">
+              Se guardará como pendiente para: <strong>{clienteEmail}</strong>
+            </p>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={loading || !cliente?.email}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Enviar Email
+            <Button type="submit" disabled={loading || (!!clienteId && !clienteEmail)}>
+              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Guardar
             </Button>
           </div>
-          {!cliente?.email && (
-            <p className="text-sm text-destructive text-right">El cliente no tiene email registrado.</p>
-          )}
         </form>
       </DialogContent>
     </Dialog>

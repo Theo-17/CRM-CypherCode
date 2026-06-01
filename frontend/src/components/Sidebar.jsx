@@ -3,15 +3,17 @@ import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { 
+import {
   LayoutDashboard, Users, CheckSquare, Calendar, ChevronLeft, ChevronRight,
   Shield, BarChart3, CreditCard, Mail, Activity, Upload, Zap, Link as LinkIcon,
-  PieChart, Package, ShoppingCart
+  PieChart, Package, ShoppingCart, GitBranch
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Sidebar = () => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('sidebar_collapsed') === 'true'
+  );
   const location = useLocation();
   const { getCurrentUserRole } = useAuth();
   const role = getCurrentUserRole();
@@ -25,6 +27,7 @@ const Sidebar = () => {
     { path: '/ventas', label: 'Ventas', icon: ShoppingCart },
     { path: '/inventario', label: 'Inventario', icon: Package },
     { path: '/emails', label: 'Emails', icon: Mail },
+    { path: '/pipeline', label: 'Pipeline', icon: GitBranch },
     { path: '/conversion-analysis', label: 'Conversión', icon: PieChart },
     { path: '/timeline', label: 'Actividad', icon: Activity },
     { path: '/pricing', label: 'Suscripción', icon: CreditCard },
@@ -51,7 +54,7 @@ const Sidebar = () => {
     >
       <div className="flex flex-col h-full">
         <div className="flex items-center justify-end p-4">
-          <Button variant="ghost" size="icon" onClick={() => setCollapsed(!collapsed)} className="h-8 w-8">
+          <Button variant="ghost" size="icon" onClick={() => setCollapsed(v => { localStorage.setItem('sidebar_collapsed', String(!v)); return !v; })} className="h-8 w-8">
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </Button>
         </div>
@@ -95,4 +98,4 @@ const Sidebar = () => {
   );
 };
 
-export default Sidebar;
+export default React.memo(Sidebar);
